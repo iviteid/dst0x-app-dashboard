@@ -1,6 +1,8 @@
 *, *::before, *::after {
   font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
+*:focus { outline: none; }
 :root {
   font-family:
     "Inter",
@@ -85,8 +87,7 @@ svg {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {
-  outline: 3px solid var(--primary);
-  outline-offset: 2px;
+  outline: none;
 }
 input,
 select {
@@ -1197,7 +1198,7 @@ small {
   width: 100%;
   box-sizing: border-box;
 }
-.ch-edit-input:focus { outline: 2px solid var(--primary); border-color: var(--primary); }
+.ch-edit-input:focus { outline: none; border-color: var(--border); }
 .ch-edit-sm { width: 70px; }
 .ch-range-edit { display: flex; align-items: center; gap: 4px; }
 .ch-edit-unit { font-size: 10px; color: var(--muted); white-space: nowrap; }
