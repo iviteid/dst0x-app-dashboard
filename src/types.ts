@@ -45,6 +45,7 @@ export interface Sensor {
   value: number;
   min?: number;
   max?: number;
+  decimals?: number;
   quality: Quality;
   timestamp: string;
 }

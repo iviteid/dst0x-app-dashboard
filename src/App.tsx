@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -20,6 +20,8 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  Cpu,
   Database,
   TabletSmartphone as DeviceTablet,
   Download,
@@ -28,21 +30,25 @@ import {
   CloudUpload,
   Grid2X2,
   History,
-  Leaf,
+  Info,
   LogOut,
   Menu,
   MoreHorizontal,
   Plus,
+  RadioTower,
   RefreshCw,
   Search,
   Settings as SettingsIcon,
-  ShieldCheck,
   Sun,
   Moon,
   Trash2,
   UserRound,
   Wifi,
   X,
+  Pencil,
+  Users,
+  Shield,
+  Server,
 } from "lucide-react";
 import type { Alert, Device, Sensor, Telemetry } from "./types";
 import {
@@ -56,13 +62,39 @@ import {
   initialDevices,
   initialSensors,
   initialTelemetry,
+  onDataUpdate,
+  updateLiveData,
+  updateSensor,
   zoneName,
   zones,
 } from "./data";
+import { fetchDeviceData } from "./api";
 import { demoService } from "./service";
 import DeviceMap from "./DeviceMap";
 import FirmwareOta from "./FirmwareOta";
+import DeviceMonitor from "./DeviceMonitor";
+import { DeviceEventsTab } from "./DeviceEvents";
 import { deviceKind, devicePosition, kindLabels, zoneCenters } from "./deviceGeo";
+import { supabase, signIn, signUp, signOut, getCurrentProfile, getUserPermissions, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "./supabase";
+
+const POLL_INTERVAL = 5 * 60 * 1000;
+
+function useLiveData() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    let mounted = true;
+    const poll = async () => {
+      const result = await fetchDeviceData();
+      if (result && mounted) {
+        updateLiveData(result.sensors, result.telemetry, result.lastSeen);
+      }
+    };
+    poll();
+    const id = setInterval(poll, POLL_INTERVAL);
+    const unsub = onDataUpdate(() => tick((n) => n + 1));
+    return () => { mounted = false; clearInterval(id); unsub(); };
+  }, []);
+}
 
 type Theme = "light" | "dark" | "system";
 type Notice = { text: string; kind?: "error" | "success" };
@@ -95,16 +127,27 @@ const iconMap = {
 const nav: [string, string][] = [
   ["dashboard", "Overview"],
   ["devices", "Devices"],
-  ["analytics", "Sensor Analytics"],
-  ["historical-data", "Historical Data"],
-  ["alerts", "Alerts"],
-  ["reports", "Reports"],
   ["firmware-ota", "Firmware OTA"],
 ];
 const badge = (text: string) =>
   `badge ${/critical|offline|missing|error/i.test(text) ? "danger" : /warning|stale|suspect|low/i.test(text) ? "warning" : /information|recent/i.test(text) ? "info" : "success"}`;
-const fmt = (v: number, unit = "") =>
-  `${new Intl.NumberFormat("en-US", { maximumFractionDigits: unit === "lux" ? 0 : 1 }).format(v)}${unit === "%" ? "%" : unit ? ` ${unit}` : ""}`;
+const fmt = (v: number, unit = "", decimals?: number) => {
+  const d = decimals != null ? decimals : unit === "lux" ? 0 : 1;
+  return `${new Intl.NumberFormat("en-US", { minimumFractionDigits: decimals != null ? d : 0, maximumFractionDigits: d }).format(v)}${unit === "%" ? "%" : unit ? ` ${unit}` : ""}`;
+};
+const sinceNow = (iso: string) => {
+  const minutes = Math.max(
+    1,
+    Math.round((Date.parse(DEMO_NOW) - Date.parse(iso)) / 60000),
+  );
+  if (minutes < 60)
+    return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
+};
+const alertIcon = { critical: AlertTriangle, warning: Activity, information: Info };
 const isPublic = (p: string) =>
   ["/login", "/signup", "/forgot-password", "/reset-password"].includes(p);
 const deviceFarm = (d: Device) =>
@@ -147,15 +190,20 @@ function useRoute() {
   };
   return [path, go] as const;
 }
+function DSTxLogo({ size = 36 }: { size?: number }) {
+  return (
+    <img src="/images/logo-orange.png" alt="DSTx" width={size} height={size} style={{ objectFit: "contain" }} />
+  );
+}
 function Brand() {
   return (
     <div className="brand">
       <span className="brand-icon">
-        <Leaf size={20} />
+        <DSTxLogo />
       </span>
       <span>
-        <b>AgrivaID</b>
-        <small>Monitor Smarter. Grow Better.</small>
+        <b>DSTx</b>
+        <small>IoT Solution</small>
       </span>
     </div>
   );
@@ -224,7 +272,7 @@ function PageHead({
   return (
     <div className="page-head">
       <div>
-        <div className="eyebrow">AGRIVAID / OPERATIONS</div>
+        <div className="eyebrow">DSTX / OPERATIONS</div>
         <h1>{title}</h1>
         <p>{description}</p>
       </div>
@@ -429,7 +477,7 @@ function Modal({
 }
 function downloadDevices(devices: Device[]) {
   downloadFile(
-    "agrivaid-devices.csv",
+    "dstx-devices.csv",
     csv([
       [
         "Device ID",
@@ -574,28 +622,136 @@ function TrendChart({
   );
 }
 
+function NotificationPopover({
+  devices,
+  alerts,
+  farm,
+  go,
+}: {
+  devices: Device[];
+  alerts: Alert[];
+  farm: string;
+  go: (p: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const scoped = alerts.filter(
+    (a) =>
+      farm === "all" ||
+      devices.find((d) => d.id === a.deviceId)?.farmId === farm,
+  );
+  const unresolved = scoped
+    .filter((a) => !a.resolvedAt)
+    .sort((a, b) => Date.parse(b.triggeredAt) - Date.parse(a.triggeredAt));
+  const unread = unresolved.filter((a) => !a.acknowledgedAt).length;
+  const shown = unresolved.slice(0, 4);
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div className="notify-wrap" ref={wrap}>
+      <button
+        className={`icon-button notify-icon ${open ? "active" : ""}`}
+        aria-label="View notifications"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Bell size={19} />
+        {unresolved.length > 0 && <i />}
+      </button>
+      {open && (
+        <div className="notify-panel" role="dialog" aria-label="Notifications">
+          <div className="notify-head">
+            <b>Notification</b>
+            <small>
+              You have {unread} unread {unread === 1 ? "message" : "messages"}
+            </small>
+          </div>
+          <div className="notify-section">New</div>
+          <div className="notify-list">
+            {shown.length ? (
+              shown.map((a) => {
+                const Icon = alertIcon[a.severity];
+                const device = devices.find((d) => d.id === a.deviceId);
+                return (
+                  <button
+                    key={a.id}
+                    className="notify-item"
+                    onClick={() => {
+                      setOpen(false);
+                      go(`/devices/${encodeURIComponent(a.deviceId)}`);
+                    }}
+                  >
+                    <span className={`notify-mark ${a.severity}`}>
+                      <Icon size={16} />
+                    </span>
+                    <span className="notify-body">
+                      <span className="notify-text">
+                        <b>{a.message}</b> on {device?.name || a.deviceId}
+                      </span>
+                      <span className="notify-time">
+                        <Clock size={13} /> {sinceNow(a.triggeredAt)}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <p className="notify-empty">
+                No open demo alerts in the current farm scope.
+              </p>
+            )}
+          </div>
+          <button
+            className="notify-all"
+            onClick={() => {
+              setOpen(false);
+              go("/devices");
+            }}
+          >
+            View all alerts
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AppShell({
   path,
   go,
   theme,
   setTheme,
   farm,
-  setFarm,
   devices,
   alerts,
   children,
   logout,
+  profile,
 }: {
   path: string;
   go: (p: string) => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
   farm: string;
-  setFarm: (f: string) => void;
   devices: Device[];
   alerts: Alert[];
   children: React.ReactNode;
   logout: () => void;
+  profile: UserProfile | null;
 }) {
   const [mobile, setMobile] = useState(false);
   const [globalQuery, setGlobalQuery] = useState("");
@@ -617,11 +773,6 @@ function AppShell({
     <div className="app-shell">
       <aside className={`sidebar ${mobile ? "open" : ""}`}>
         <Brand />
-        <div className="side-farm">
-          <span>ACTIVE SCOPE</span>
-          <strong>{farm === "all" ? "All demo farms" : farmName(farm)}</strong>
-          <small>Demo workspace</small>
-        </div>
         <div className="nav-label">WORKSPACE</div>
         <nav>
           {nav.map(([key, name]) => {
@@ -642,15 +793,22 @@ function AppShell({
               >
                 <Icon size={18} />
                 <span>{name}</span>
-                {key === "alerts" &&
-                  alerts.filter((a) => !a.resolvedAt).length > 0 && (
-                    <em>{alerts.filter((a) => !a.resolvedAt).length}</em>
-                  )}
               </button>
             );
           })}
         </nav>
         <div className="side-bottom">
+          {profile?.role === "admin" && (
+            <button
+              className={path === "/users" ? "active" : ""}
+              onClick={() => {
+                go("/users");
+                setMobile(false);
+              }}
+            >
+              <Users size={18} /> User Management
+            </button>
+          )}
           <button
             className={path === "/settings" ? "active" : ""}
             onClick={() => {
@@ -670,13 +828,13 @@ function AppShell({
             <UserRound size={18} /> User profile
           </button>
           <button onClick={logout}>
-            <LogOut size={18} /> Leave demo
+            <LogOut size={18} /> {profile ? "Sign out" : "Leave demo"}
           </button>
           <div className="side-user">
-            <span className="avatar">AM</span>
+            <span className="avatar">{profile ? profile.full_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "AM"}</span>
             <span>
-              <b>Alex Morgan</b>
-              <small>Demo administrator</small>
+              <b>{profile ? profile.full_name : "Alex Morgan"}</b>
+              <small>{profile ? ROLE_LABELS[profile.role] : "Demo administrator"}</small>
             </span>
           </div>
         </div>
@@ -699,9 +857,6 @@ function AppShell({
             </span>
           </div>
           <div className="top-right">
-            <span className="demo-chip">
-              <span className="status-pulse" /> DEMO DATA
-            </span>
             <div className="global-search">
               <Search size={15} />
               <input
@@ -733,19 +888,6 @@ function AppShell({
                 </div>
               )}
             </div>
-            <select
-              aria-label="Select farm"
-              className="top-select"
-              value={farm}
-              onChange={(e) => setFarm(e.target.value)}
-            >
-              <option value="all">All demo farms</option>
-              {farms.map((f) => (
-                <option value={f.id} key={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
             <button
               className="icon-button"
               aria-label="Toggle theme"
@@ -760,20 +902,18 @@ function AppShell({
             >
               {theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}
             </button>
-            <button
-              className="icon-button notify-icon"
-              aria-label="View alerts"
-              onClick={() => go("/alerts")}
-            >
-              <Bell size={19} />
-              <i />
-            </button>
+            <NotificationPopover
+              devices={devices}
+              alerts={alerts}
+              farm={farm}
+              go={go}
+            />
             <button
               className="avatar avatar-btn"
               aria-label="User profile"
               onClick={() => go("/profile")}
             >
-              AM
+              {profile ? profile.full_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "AM"}
             </button>
           </div>
         </header>
@@ -781,7 +921,7 @@ function AppShell({
           {children}
           <footer className="app-footer">
             <span>
-              AgrivaID demo · Simulated telemetry, last dataset timestamp{" "}
+              DSTx IoT · Simulated telemetry, last dataset timestamp{" "}
               {formatTime(DEMO_NOW)}
             </span>
             <span>Device connectivity reflects demo state, not hardware</span>
@@ -792,35 +932,111 @@ function AppShell({
   );
 }
 
+function SensorCarousel({ devices, go }: { devices: Device[]; go: (p: string) => void }) {
+  const deviceMap = new Map(devices.map((d) => [d.id, d]));
+  const allSensors = devices.flatMap((d) => initialSensors.filter((s) => s.deviceId === d.id));
+  const deviceKey = devices.map((d) => d.id).join(",");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const programmatic = useRef(false);
+  const [active, setActive] = useState(1);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !allSensors.length) return;
+    const next = Math.min(1, allSensors.length - 1);
+    setActive(next);
+    const frame = requestAnimationFrame(() => {
+      const card = el.children[next] as HTMLElement | undefined;
+      if (card) el.scrollLeft = card.offsetLeft - el.offsetWidth / 2 + card.offsetWidth / 2;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [deviceKey]);
+  const goTo = (idx: number) => {
+    const next = Math.max(0, Math.min(allSensors.length - 1, idx));
+    setActive(next);
+    programmatic.current = true;
+    const el = scrollRef.current;
+    if (!el) return;
+    const card = el.children[next] as HTMLElement;
+    if (!card) return;
+    const offset = card.offsetLeft - el.offsetWidth / 2 + card.offsetWidth / 2;
+    el.scrollTo({ left: offset, behavior: "smooth" });
+    setTimeout(() => { programmatic.current = false; }, 500);
+  };
+  const onScroll = () => {
+    if (programmatic.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const cards = el.querySelectorAll(".sc-card");
+    const center = el.scrollLeft + el.offsetWidth / 2;
+    let closest = 0;
+    let minDist = Infinity;
+    cards.forEach((c, i) => {
+      const dist = Math.abs((c as HTMLElement).offsetLeft + (c as HTMLElement).offsetWidth / 2 - center);
+      if (dist < minDist) { minDist = dist; closest = i; }
+    });
+    setActive(closest);
+  };
+  const inRange = (s: Sensor) => {
+    if (s.quality === "missing") return false;
+    if (s.min != null && s.value < s.min) return false;
+    if (s.max != null && s.value > s.max) return false;
+    return true;
+  };
+  return (
+    <div className="sc-section">
+      <div className="sc-wrapper">
+        <button className="sc-arrow sc-arrow-left" onClick={() => goTo(active - 1)} aria-label="Previous reading" disabled={active === 0}><ChevronLeft size={16} /></button>
+        <div className="sc-track" ref={scrollRef} onScroll={onScroll}>
+          {allSensors.map((s, i) => (
+            <button type="button" key={s.id} className={`sc-card ${i === active ? "sc-active" : ""}`}
+              aria-pressed={i === active}
+              aria-label={`${s.name}: ${s.value} ${s.unit}. ${i === active ? "Open device details" : "Select reading"}`}
+              onClick={() => { if (i !== active) goTo(i); else go(`/devices/${encodeURIComponent(s.deviceId)}`); }}
+            >
+              <div className="sc-card-inner">
+                <span className="sc-sensor-name">{s.name}</span>
+                <span className={`sc-value ${inRange(s) ? "" : "sc-warn"}`}>
+                  {s.quality === "missing" ? "—" : s.value.toLocaleString("en-US", { minimumFractionDigits: s.decimals ?? 0, maximumFractionDigits: s.decimals ?? 3 })}
+                </span>
+                <span className="sc-unit">{s.unit}</span>
+                <span className={`sc-range ${inRange(s) ? "" : "sc-range-warn"}`}>{inRange(s) ? "Normal range" : "Out of range"}</span>
+                <span className={`sc-id ${i === active ? "sc-id-active" : ""}`}>{s.id}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+        <button className="sc-arrow sc-arrow-right" onClick={() => goTo(active + 1)} aria-label="Next reading" disabled={active === allSensors.length - 1}><ChevronRight size={16} /></button>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ devices, farm, go, notify, refresh }: PageProps) {
   const scoped = devices.filter((d) => farm === "all" || d.farmId === farm);
-  const ids = new Set(scoped.map((d) => d.id));
-  const sensors = initialSensors.filter((s) => ids.has(s.deviceId));
-  const scopedTelemetry = initialTelemetry.filter((t) => ids.has(t.deviceId));
-  const availability = scopedTelemetry.length
-    ? `${((scopedTelemetry.filter((t) => t.quality === "valid").length / scopedTelemetry.length) * 100).toFixed(1)}%`
-    : "—";
   return (
     <>
       <PageHead
-        title="Farm Overview"
-        description={`${farm === "all" ? "All demo farms" : farmName(farm)} · Smart agriculture monitoring at a glance`}
+        title="Overview"
+        description="A clear, welcoming view of your sensors and connected devices."
         actions={
           <>
             <span className="updated">Dataset: {formatTime(DEMO_NOW)}</span>
-            <Button onClick={() => { refresh(); notify("Demo dataset checked. Values remain deterministic."); }}>
+            <Button onClick={() => { refresh(); notify("Data refreshed."); }}>
               <RefreshCw size={16} /> Refresh
             </Button>
           </>
         }
       />
-      <div className="dashboard-kpis">
-        <Stat label="Total devices" value={scoped.length} detail="Registered in scope" Icon={DeviceTablet} accent="featured" onClick={() => go("/devices")} />
-        <Stat label="Online devices" value={scoped.filter((d) => d.status === "online").length} detail="Communicating" Icon={Wifi} onClick={() => go("/devices?status=online")} />
-        <Stat label="Offline devices" value={scoped.filter((d) => d.status === "offline").length} detail="Connectivity checks" Icon={AlertTriangle} accent="danger-tint" onClick={() => go("/devices?status=offline")} />
-        <Stat label="With warnings" value={scoped.filter((d) => d.status === "warning" || d.status === "critical").length} detail="Needs review" Icon={Bell} accent="warning-tint" onClick={() => go("/devices?status=warning")} />
-        <Stat label="Sensor channels" value={sensors.length} detail="Configured channels" Icon={Activity} onClick={() => go("/analytics")} />
-        <Stat label="Data availability" value={availability} detail="Valid samples, last 7 days" Icon={Database} onClick={() => go("/historical-data")} />
+      <div className="overview-section-heading">
+        <div className="overview-section-icon"><Activity size={18} /></div>
+        <div>
+          <h2>Live readings</h2>
+          <p>Browse {scoped.length} device{scoped.length === 1 ? "" : "s"}, then open a reading for details.</p>
+        </div>
+        <span className="overview-section-chip">Updated {formatTime(DEMO_NOW)}</span>
+      </div>
+      <div className="sc-grid">
+        <SensorCarousel devices={scoped} go={go} />
       </div>
       <DeviceMap devices={devices} farm={farm} go={go} />
     </>
@@ -1155,7 +1371,7 @@ function Devices({ devices, alerts, farm, go, notify, refresh }: PageProps) {
     <>
       <PageHead
         title="Devices"
-        description="Manage field nodes, stations, and gateways in your selected farm scope."
+        description="Manage field nodes, stations, and gateways across your workspace."
         actions={
           <>
             <Button
@@ -1188,39 +1404,6 @@ function Devices({ devices, alerts, farm, go, notify, refresh }: PageProps) {
             {["online", "offline", "warning", "critical"].map((s) => (
               <option key={s}>{s}</option>
             ))}
-          </select>
-          <select
-            value={zone}
-            onChange={(e) => setZone(e.target.value)}
-            aria-label="Filter zone"
-          >
-            <option value="all">All zones</option>
-            {zones
-              .filter((z) => farm === "all" || z.farmId === farm)
-              .map((z) => (
-                <option value={z.id} key={z.id}>
-                  {z.name}
-                </option>
-              ))}
-          </select>
-          <select
-            value={protocol}
-            onChange={(e) => setProtocol(e.target.value)}
-            aria-label="Filter protocol"
-          >
-            <option value="all">All protocols</option>
-            {[...new Set(devices.map((d) => d.protocol))].map((p) => (
-              <option key={p}>{p}</option>
-            ))}
-          </select>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as typeof sort)}
-            aria-label="Sort devices"
-          >
-            <option value="name">Sort: name</option>
-            <option value="status">Sort: status</option>
-            <option value="lastSeen">Sort: last seen</option>
           </select>
           <button
             className="text-action"
@@ -1312,6 +1495,120 @@ function Devices({ devices, alerts, farm, go, notify, refresh }: PageProps) {
   );
 }
 
+function SensorEditModal({ sensor, onClose, notify }: { sensor: Sensor; onClose: () => void; notify: (m: string) => void }) {
+  const [name, setName] = useState(sensor.name);
+  const [unit, setUnit] = useState(sensor.unit);
+  const [min, setMin] = useState(sensor.min != null ? String(sensor.min) : "");
+  const [max, setMax] = useState(sensor.max != null ? String(sensor.max) : "");
+  const [decimals, setDecimals] = useState(sensor.decimals != null ? String(sensor.decimals) : "");
+  const save = () => {
+    updateSensor(sensor.id, {
+      name: name.trim() || undefined,
+      unit: unit.trim(),
+      min: min.trim() !== "" ? Number(min) : null,
+      max: max.trim() !== "" ? Number(max) : null,
+      decimals: decimals.trim() !== "" ? Number(decimals) : null,
+    });
+    notify("Sensor updated.");
+    onClose();
+  };
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-box sensor-edit-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sensor-edit-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div>
+            <h3 id="sensor-edit-title">Edit sensor</h3>
+            <p>Fine-tune the channel display and valid reading range.</p>
+          </div>
+          <button className="sensor-modal-close" aria-label="Close sensor editor" onClick={onClose}><X size={17} /></button>
+        </div>
+        <div className="modal-body">
+          <div className="sensor-id-row">
+            <span>Sensor ID</span>
+            <code>{sensor.id}</code>
+          </div>
+          <label className="modal-label">
+            <span>Sensor name</span>
+            <input className="ch-edit-input" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </label>
+          <div className="sensor-form-grid">
+            <label className="modal-label">
+              <span>Unit</span>
+              <input className="ch-edit-input" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="e.g. %RH" />
+            </label>
+            <label className="modal-label">
+              <span>Decimal places</span>
+              <input className="ch-edit-input" value={decimals} onChange={(e) => setDecimals(e.target.value)} type="number" min="0" max="6" placeholder="0–6" />
+            </label>
+          </div>
+          <fieldset className="sensor-range-field">
+            <legend>Reading range</legend>
+            <div className="ch-range-edit">
+              <label><span>Minimum</span><input className="ch-edit-input" placeholder="Min" value={min} onChange={(e) => setMin(e.target.value)} type="number" /></label>
+              <i>to</i>
+              <label><span>Maximum</span><input className="ch-edit-input" placeholder="Max" value={max} onChange={(e) => setMax(e.target.value)} type="number" /></label>
+            </div>
+          </fieldset>
+        </div>
+        <div className="modal-footer">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={save}>Save changes</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChannelsTab({ sensors, notify }: { sensors: Sensor[]; notify: (m: string) => void }) {
+  const [editing, setEditing] = useState<Sensor | null>(null);
+  return (
+    <Card className="padded">
+      <PanelHead title="Sensor channels" detail={`${sensors.length} configured channels`} />
+      {sensors.length ? (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Sensor</th>
+                <th>Current reading</th>
+                <th>Configured range</th>
+                <th>Quality</th>
+                <th>Last received</th>
+                <th style={{ width: 60 }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sensors.map((s) => (
+                <tr key={s.id}>
+                  <td><b>{s.name}</b><small>{s.id}</small></td>
+                  <td className="number">{s.quality === "missing" ? "—" : fmt(s.value, s.unit, s.decimals)}</td>
+                  <td>
+                    {thresholds(s).min == null || thresholds(s).max == null
+                      ? "Not configured"
+                      : `${thresholds(s).min}–${thresholds(s).max} ${s.unit}`}
+                  </td>
+                  <td><Badge>{s.quality}</Badge></td>
+                  <td>{timeShort(s.timestamp)}</td>
+                  <td><button className="ch-btn ch-btn-edit" onClick={() => setEditing(s)}><Pencil size={14} /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <Empty title="No sensors configured" detail="Add sensor channels through a connected backend." />
+      )}
+      {editing && <SensorEditModal sensor={editing} onClose={() => setEditing(null)} notify={notify} />}
+    </Card>
+  );
+}
+
 function DeviceDetail({
   id,
   devices,
@@ -1376,26 +1673,8 @@ function DeviceDetail({
           </>
         }
       />
-      <div className="device-meta">
-        <span>
-          <b>Protocol</b>
-          {d.protocol}
-        </span>
-        <span>
-          <b>Last seen</b>
-          {formatTime(d.lastSeen)}
-        </span>
-        <span>
-          <b>Reporting interval</b>
-          {d.intervalSeconds} sec
-        </span>
-        <span>
-          <b>Data freshness</b>
-          {freshness(d)}
-        </span>
-      </div>
       <div className="tabs">
-        {["overview", "telemetry", "events", "configuration"].map((t) => (
+        {["overview", "channels", "events", "configuration"].map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -1406,175 +1685,10 @@ function DeviceDetail({
         ))}
       </div>
       {tab === "overview" && (
-        <>
-          <div className="detail-stats">
-            <Stat
-              label="Connection"
-              value={d.status}
-              detail="Demo state"
-              Icon={Wifi}
-            />
-            <Stat
-              label="Battery"
-              value={d.voltage == null ? "Not available" : `${d.voltage} V`}
-              detail={
-                d.battery == null ? "Not reported" : `${d.battery}% capacity`
-              }
-              Icon={Activity}
-            />
-            <Stat
-              label="Signal"
-              value={d.signal == null ? "Not available" : `${d.signal} dBm`}
-              detail="Last diagnostic"
-              Icon={Wifi}
-            />
-            <Stat
-              label="Firmware"
-              value={d.firmware || "Not available"}
-              detail="Reported metadata"
-              Icon={ShieldCheck}
-            />
-          </div>
-          <div className="two-column">
-            <Card className="padded">
-              <PanelHead
-                title="Sensor history"
-                detail="Configured thresholds shown when available"
-                action={
-                  <div className="inline-controls">
-                    <select
-                      value={sensor?.id || ""}
-                      onChange={(e) => setSensorId(e.target.value)}
-                      aria-label="Device sensor"
-                    >
-                      {sensors.map((s) => (
-                        <option value={s.id} key={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={range}
-                      onChange={(e) => setRange(e.target.value)}
-                      aria-label="Chart range"
-                    >
-                      {["1H", "6H", "24H", "7D", "30D"].map((r) => (
-                        <option key={r}>{r}</option>
-                      ))}
-                    </select>
-                  </div>
-                }
-              />
-              {sensor ? (
-                <TrendChart
-                  sensor={sensor}
-                  device={d}
-                  range={range}
-                  showPrevious={false}
-                />
-              ) : (
-                <Empty
-                  title="No sensor channels"
-                  detail="This demo device has no configured sensors."
-                />
-              )}
-            </Card>
-            <Card className="padded">
-              <PanelHead
-                title="Device health"
-                detail="Metrics exposed by this demo device"
-              />
-              <div className="key-values">
-                {[
-                  ["Status", d.status],
-                  ["Uptime", d.uptime || "Not available"],
-                  ["Last telemetry", formatTime(d.lastTelemetry)],
-                  ["Communication errors", "Not available"],
-                  ["Firmware", d.firmware || "Not available"],
-                  [
-                    "Signal",
-                    d.signal == null ? "Not available" : `${d.signal} dBm`,
-                  ],
-                ].map(([k, v]) => (
-                  <div key={k}>
-                    <span>{k}</span>
-                    <b>{v}</b>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-          <Card className="padded">
-            <PanelHead
-              title="Sensor channels"
-              detail={`${sensors.length} configured channels`}
-              action={
-                <button
-                  className="text-action"
-                  onClick={() => go("/analytics")}
-                >
-                  Open analytics →
-                </button>
-              }
-            />
-            {sensors.length ? (
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Sensor</th>
-                      <th>Current reading</th>
-                      <th>Configured range</th>
-                      <th>Quality</th>
-                      <th>Last received</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sensors.map((s) => (
-                      <tr key={s.id}>
-                        <td>
-                          <b>{s.name}</b>
-                          <small>{s.id}</small>
-                        </td>
-                        <td className="number">
-                          {s.quality === "missing" ? "—" : fmt(s.value, s.unit)}
-                        </td>
-                        <td>
-                          {thresholds(s).min == null ||
-                          thresholds(s).max == null
-                            ? "Not configured"
-                            : `${thresholds(s).min}–${thresholds(s).max} ${s.unit}`}
-                        </td>
-                        <td>
-                          <Badge>{s.quality}</Badge>
-                        </td>
-                        <td>{timeShort(s.timestamp)}</td>
-                        <td>
-                          <button
-                            className="table-link"
-                            onClick={() =>
-                              go(
-                                `/analytics?sensor=${encodeURIComponent(s.id)}`,
-                              )
-                            }
-                          >
-                            Analyze →
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <Empty
-                title="No sensors configured"
-                detail="Add sensor channels through a connected backend."
-              />
-            )}
-          </Card>
-        </>
+        <DeviceMonitor device={d} sensors={sensors} notify={notify} />
+      )}
+      {tab === "channels" && (
+        <ChannelsTab sensors={sensors} notify={notify} />
       )}
       {tab === "telemetry" && (
         <Card className="padded">
@@ -1596,25 +1710,7 @@ function DeviceDetail({
         </Card>
       )}
       {tab === "events" && (
-        <Card className="padded">
-          <PanelHead title="Device events" detail="Simulated recent events" />
-          {alerts.filter((a) => a.deviceId === d.id).length ? (
-            alerts
-              .filter((a) => a.deviceId === d.id)
-              .map((a) => (
-                <div className="event-row" key={a.id}>
-                  <Badge>{a.severity}</Badge>
-                  <b>{a.message}</b>
-                  <span>{formatTime(a.triggeredAt)}</span>
-                </div>
-              ))
-          ) : (
-            <Empty
-              title="No recent events"
-              detail="There are no sample alerts for this device."
-            />
-          )}
-        </Card>
+        <DeviceEventsTab device={d} sensors={sensors} notify={notify} />
       )}
       {tab === "configuration" && (
         <Card className="padded">
@@ -1712,752 +1808,50 @@ function TelemetryTable({ rows }: { rows: Telemetry[] }) {
   );
 }
 
-function Analytics({ devices, farm, go, notify }: PageProps) {
-  const scoped = devices.filter((d) => farm === "all" || d.farmId === farm);
-  const sensors = initialSensors.filter((s) =>
-    scoped.some((d) => d.id === s.deviceId),
-  );
-  const initial = new URLSearchParams(location.search).get("sensor") || "";
-  const [sensorId, setSensorId] = useState(initial);
-  const [range, setRange] = useState("24H");
-  const [compare, setCompare] = useState(true);
-  const s = sensors.find((x) => x.id === sensorId) || sensors[0];
-  const d = devices.find((x) => x.id === s?.deviceId);
-  const count =
-    range === "1H" ? 2 : range === "6H" ? 7 : range === "24H" ? 24 : 168;
-  const rows = initialTelemetry
-    .filter((t) => t.sensorId === s?.id)
-    .slice(-count)
-    .filter((t) => t.quality === "valid");
-  const vals = rows.map((r) => r.value);
-  const stats = [
-    ["Latest", s && s.quality === "valid" ? fmt(s.value, s.unit) : "—"],
-    ["Minimum", vals.length ? fmt(Math.min(...vals), s.unit) : "—"],
-    ["Maximum", vals.length ? fmt(Math.max(...vals), s.unit) : "—"],
-    [
-      "Average",
-      vals.length
-        ? fmt(vals.reduce((a, b) => a + b, 0) / vals.length, s.unit)
-        : "—",
-    ],
-    ["Valid samples", `${rows.length}/${count}`],
-    ["Reading count", rows.length.toString()],
-  ];
-  return (
-    <>
-      <PageHead
-        title="Sensor Analytics"
-        description="Explore agricultural conditions with compatible units and clear aggregation."
-        actions={
-          <Button
-            onClick={() => {
-              if (s) {
-                demoService.exportTelemetry(rows, `${s.id}-analytics.csv`);
-                notify("Analytics CSV downloaded.");
-              }
-            }}
-          >
-            <Download size={16} /> Export data
-          </Button>
-        }
-      />
-      <Card className="padded">
-        <div className="filter-bar">
-          <LabelSelect
-            label="Sensor channel"
-            value={s?.id || ""}
-            onChange={setSensorId}
-            options={sensors.map((x) => [
-              x.id,
-              `${x.name} · ${devices.find((d) => d.id === x.deviceId)?.name}`,
-            ])}
-          />
-          <LabelSelect
-            label="Time range"
-            value={range}
-            onChange={setRange}
-            options={["1H", "6H", "24H", "7D", "30D"].map((x) => [x, x])}
-          />
-          <label className="check-control">
-            <input
-              type="checkbox"
-              checked={compare}
-              onChange={(e) => setCompare(e.target.checked)}
-            />{" "}
-            Previous period
-          </label>
-        </div>
-      </Card>
-      <div className="analytics-stats">
-        {stats.map(([a, b]) => (
-          <Card className="mini-stat" key={a}>
-            <span>{a}</span>
-            <strong>{b}</strong>
-          </Card>
-        ))}
-      </div>
-      <Card className="padded chart-card">
-        <PanelHead
-          title={s ? `${s.name} trend` : "No sensor selected"}
-          detail={`${d?.name || "No device"} · ${s?.unit || "—"} · Hourly demo samples · Asia/Jakarta`}
-          action={<Badge>Demo data</Badge>}
-        />
-        {s && d ? (
-          <TrendChart
-            sensor={s}
-            device={d}
-            range={range}
-            showPrevious={compare}
-          />
-        ) : (
-          <Empty
-            title="No sensors"
-            detail="This farm has no configured sensor channels."
-          />
-        )}
-        <p className="hint">
-          {range === "30D"
-            ? "Only the latest seven days are available in the demo dataset. "
-            : ""}
-          A threshold crossing is informational until verified against device
-          diagnostics and crop configuration.
-        </p>
-      </Card>
-      <div className="two-column">
-        <Card className="padded">
-          <PanelHead
-            title="Distribution"
-            detail="Hourly readings across the selected period"
-          />
-          {s && vals.length ? (
-            <ResponsiveContainer width="100%" height={210}>
-              <AreaChart data={rows.map((r, i) => ({ x: i, value: r.value }))}>
-                <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="x" hide />
-                <YAxis
-                  tick={{ fill: "var(--muted)", fontSize: 11 }}
-                  width={45}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--border)",
-                  }}
-                />
-                <Area
-                  dataKey="value"
-                  stroke="var(--primary)"
-                  fill="var(--chart-fill)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <Empty title="No readings" detail="Choose another range." />
-          )}
-        </Card>
-        <Card className="padded">
-          <PanelHead
-            title="Interpretation notes"
-            detail="Demo analysis, not agronomic advice"
-          />
-          <div className="key-values">
-            <div>
-              <span>Aggregation</span>
-              <b>Hourly source samples</b>
-            </div>
-            <div>
-              <span>Data quality</span>
-              <b>
-                {rows.length}/{count} valid
-              </b>
-            </div>
-            <div>
-              <span>Configured range</span>
-              <b>
-                {s == null || thresholds(s).min == null
-                  ? "Not configured"
-                  : `${thresholds(s).min}–${thresholds(s).max} ${s.unit}`}
-              </b>
-            </div>
-            <div>
-              <span>Timezone</span>
-              <b>Asia/Jakarta</b>
-            </div>
-          </div>
-          <Button onClick={() => go("/historical-data")}>
-            Inspect raw records
-          </Button>
-        </Card>
-      </div>
-    </>
-  );
-}
-
-function HistoryPage({ devices, farm, notify }: PageProps) {
-  const ids = new Set(
-    devices.filter((d) => farm === "all" || d.farmId === farm).map((d) => d.id),
-  );
-  const [query, setQuery] = useState("");
-  const [quality, setQuality] = useState("all");
-  const [device, setDevice] = useState("all");
-  const [sensor, setSensor] = useState("all");
-  const [fromDate, setFromDate] = useState("2026-10-11");
-  const [toDate, setToDate] = useState("2026-10-18");
-  const [page, setPage] = useState(1);
-  const [size, setSize] = useState(15);
-  const [utc, setUtc] = useState(false);
-  const [desc, setDesc] = useState(true);
-  const rows = useMemo(
-    () =>
-      initialTelemetry
-        .filter(
-          (t) =>
-            ids.has(t.deviceId) &&
-            (device === "all" || t.deviceId === device) &&
-            (sensor === "all" || t.sensorId === sensor) &&
-            (quality === "all" || t.quality === quality) &&
-            t.timestamp.slice(0, 10) >= fromDate &&
-            t.timestamp.slice(0, 10) <= toDate &&
-            `${t.deviceId} ${initialSensors.find((s) => s.id === t.sensorId)?.name || ""}`
-              .toLowerCase()
-              .includes(query.toLowerCase()),
-        )
-        .sort((a, b) =>
-          desc
-            ? b.timestamp.localeCompare(a.timestamp)
-            : a.timestamp.localeCompare(b.timestamp),
-        ),
-    [farm, devices, query, quality, device, sensor, fromDate, toDate, desc],
-  );
-  useEffect(
-    () => setPage(1),
-    [farm, query, quality, device, sensor, fromDate, toDate, size],
-  );
-  const visible = rows.slice((page - 1) * size, page * size);
-  const exportRows = async (type: "csv" | "json") => {
-    if (type === "csv")
-      await demoService.exportTelemetry(rows, "agrivaid-telemetry.csv");
-    else
-      downloadFile(
-        "agrivaid-telemetry.json",
-        JSON.stringify(rows, null, 2),
-        "application/json",
-      );
-    notify(`${type.toUpperCase()} export downloaded with current filters.`);
-  };
-  return (
-    <>
-      <PageHead
-        title="Historical Data"
-        description="Explore raw demo telemetry with explicit quality and time context."
-        actions={
-          <>
-            <Button onClick={() => exportRows("json")}>JSON</Button>
-            <Button onClick={() => exportRows("csv")}>
-              <Download size={16} /> Export CSV
-            </Button>
-          </>
-        }
-      />
-      <Card className="padded">
-        <div className="filter-bar">
-          <SearchBox
-            value={query}
-            onChange={setQuery}
-            placeholder="Search device or sensor"
-          />
-          <label className="compact-date">
-            From
-            <input
-              aria-label="From date"
-              type="date"
-              value={fromDate}
-              max={toDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-          </label>
-          <label className="compact-date">
-            To
-            <input
-              aria-label="To date"
-              type="date"
-              value={toDate}
-              min={fromDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
-          </label>
-          <select
-            value={device}
-            onChange={(e) => setDevice(e.target.value)}
-            aria-label="Device filter"
-          >
-            <option value="all">All devices</option>
-            {devices
-              .filter((d) => ids.has(d.id))
-              .map((d) => (
-                <option value={d.id} key={d.id}>
-                  {d.name}
-                </option>
-              ))}
-          </select>
-          <select
-            value={sensor}
-            onChange={(e) => setSensor(e.target.value)}
-            aria-label="Sensor filter"
-          >
-            <option value="all">All sensors</option>
-            {initialSensors
-              .filter((s) => ids.has(s.deviceId))
-              .map((s) => (
-                <option value={s.id} key={s.id}>
-                  {s.name} · {s.deviceId}
-                </option>
-              ))}
-          </select>
-          <select
-            value={quality}
-            onChange={(e) => setQuality(e.target.value)}
-            aria-label="Quality filter"
-          >
-            <option value="all">All quality</option>
-            <option value="valid">Valid</option>
-            <option value="missing">Missing</option>
-            <option value="suspect">Suspect</option>
-          </select>
-          <select
-            value={size}
-            onChange={(e) => setSize(Number(e.target.value))}
-            aria-label="Rows per page"
-          >
-            <option value={15}>15 rows</option>
-            <option value={30}>30 rows</option>
-            <option value={50}>50 rows</option>
-          </select>
-          <label className="check-control">
-            <input
-              type="checkbox"
-              checked={utc}
-              onChange={(e) => setUtc(e.target.checked)}
-            />{" "}
-            UTC
-          </label>
-          <button
-            className="text-action"
-            onClick={() => {
-              setQuery("");
-              setQuality("all");
-              setDevice("all");
-              setSensor("all");
-              setFromDate("2026-10-11");
-              setToDate("2026-10-18");
-            }}
-          >
-            Reset
-          </button>
-        </div>
-        <div className="filter-summary">
-          <CalendarDays size={14} /> {rows.length.toLocaleString()} records ·
-          {fromDate} to {toDate} · {utc ? "UTC" : "Asia/Jakarta"} · Demo data
-        </div>
-        {visible.length ? (
-          <>
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>
-                      <button
-                        className="sort-button"
-                        onClick={() => setDesc(!desc)}
-                      >
-                        Timestamp {desc ? "↓" : "↑"}
-                      </button>
-                    </th>
-                    <th>Device</th>
-                    <th>Sensor</th>
-                    <th>Reading</th>
-                    <th>Quality</th>
-                    <th>Farm / zone</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((r) => {
-                    const d = devices.find((d) => d.id === r.deviceId);
-                    const s = initialSensors.find((s) => s.id === r.sensorId);
-                    return (
-                      <tr key={r.id}>
-                        <td>
-                          {utc
-                            ? r.timestamp.replace("T", " ").slice(0, 16) +
-                              " UTC"
-                            : formatTime(r.timestamp)}
-                        </td>
-                        <td>
-                          <b>{d?.name || "Removed device"}</b>
-                          <small>{r.deviceId}</small>
-                        </td>
-                        <td>{s?.name || r.sensorId}</td>
-                        <td className="number">
-                          {r.quality === "missing"
-                            ? "—"
-                            : fmt(r.value, s?.unit)}
-                        </td>
-                        <td>
-                          <Badge>{r.quality}</Badge>
-                        </td>
-                        <td>{d ? deviceFarm(d) : "Not available"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <Pager
-              page={page}
-              setPage={setPage}
-              total={rows.length}
-              size={size}
-            />
-          </>
-        ) : (
-          <Empty
-            title="No telemetry matches"
-            detail="Change the filters to see historical records."
-          />
-        )}
-      </Card>
-    </>
-  );
-}
-
-function AlertsPage({ devices, alerts, farm, go, notify, refresh }: PageProps) {
-  const scoped = alerts.filter(
-    (a) =>
-      farm === "all" ||
-      devices.find((d) => d.id === a.deviceId)?.farmId === farm,
-  );
-  const [query, setQuery] = useState("");
-  const [severity, setSeverity] = useState("all");
-  const [state, setState] = useState("all");
-  const filtered = scoped.filter(
-    (a) =>
-      (severity === "all" || a.severity === severity) &&
-      (state === "all" ||
-        (state === "open" && !a.resolvedAt) ||
-        (state === "resolved" && !!a.resolvedAt)) &&
-      `${a.message} ${a.deviceId}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const acknowledge = async (id: string) => {
-    await demoService.acknowledgeAlert(id);
-    refresh();
-    notify("Demo alert acknowledged.", "success");
-  };
-  const resolve = (id: string) => {
-    const all: Alert[] = read("agrivaid-alerts", initialAlerts);
-    const a = all.find((x) => x.id === id);
-    if (a) {
-      a.resolvedAt = new Date().toISOString();
-      localStorage.setItem("agrivaid-alerts", JSON.stringify(all));
-      refresh();
-      notify("Demo alert resolved.", "success");
-    }
-  };
-  return (
-    <>
-      <PageHead
-        title="Alerts & Notifications"
-        description="Review simulated exceptions and record your response."
-        actions={
-          <Badge>{`${scoped.filter((a) => !a.resolvedAt).length} open`}</Badge>
-        }
-      />
-      <Card className="padded">
-        <div className="filter-bar">
-          <SearchBox
-            value={query}
-            onChange={setQuery}
-            placeholder="Search alerts"
-          />
-          <select
-            value={severity}
-            onChange={(e) => setSeverity(e.target.value)}
-            aria-label="Severity filter"
-          >
-            <option value="all">All severities</option>
-            <option value="critical">Critical</option>
-            <option value="warning">Warning</option>
-            <option value="information">Information</option>
-          </select>
-          <select
-            value={state}
-            onChange={(e) => setState(e.target.value)}
-            aria-label="Resolution filter"
-          >
-            <option value="all">All states</option>
-            <option value="open">Open</option>
-            <option value="resolved">Resolved</option>
-          </select>
-        </div>
-        {filtered.length ? (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Severity</th>
-                  <th>Alert</th>
-                  <th>Device</th>
-                  <th>Reading / threshold</th>
-                  <th>Triggered</th>
-                  <th>Acknowledgment</th>
-                  <th>Resolution</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((a) => {
-                  const d = devices.find((x) => x.id === a.deviceId);
-                  return (
-                    <tr key={a.id}>
-                      <td>
-                        <Badge>{a.severity}</Badge>
-                      </td>
-                      <td>
-                        <b>{a.message}</b>
-                        <small>{a.id} · simulated</small>
-                      </td>
-                      <td>
-                        <button
-                          className="table-link"
-                          onClick={() => go(`/devices/${a.deviceId}`)}
-                        >
-                          {d?.name || a.deviceId}
-                        </button>
-                        <small>{a.deviceId}</small>
-                      </td>
-                      <td>
-                        {a.current || "—"} / {a.threshold || "—"}
-                      </td>
-                      <td>{formatTime(a.triggeredAt)}</td>
-                      <td>{a.acknowledgedAt ? "Acknowledged" : "Pending"}</td>
-                      <td>{a.resolvedAt ? "Resolved" : "Open"}</td>
-                      <td>
-                        <div className="row-actions">
-                          {!a.acknowledgedAt && (
-                            <button onClick={() => acknowledge(a.id)}>
-                              Acknowledge
-                            </button>
-                          )}
-                          {!a.resolvedAt && (
-                            <button onClick={() => resolve(a.id)}>
-                              Resolve
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <Empty
-            title="No matching alerts"
-            detail="Adjust the search or filters to see sample events."
-          />
-        )}
-      </Card>
-    </>
-  );
-}
-
-function Reports({ devices, farm, notify }: PageProps) {
-  const [device, setDevice] = useState("all");
-  const [format, setFormat] = useState("csv");
-  const [range, setRange] = useState("7D");
-  const ids = new Set(
-    devices
-      .filter(
-        (d) =>
-          (farm === "all" || d.farmId === farm) &&
-          (device === "all" || d.id === device),
-      )
-      .map((d) => d.id),
-  );
-  const count = range === "24H" ? 24 : 168;
-  const rows = initialTelemetry
-    .filter((t) => ids.has(t.deviceId))
-    .filter(
-      (t) => Date.parse(t.timestamp) >= Date.parse(DEMO_NOW) - count * 3600000,
-    );
-  const exportReport = () => {
-    if (format === "csv")
-      downloadFile(
-        "agrivaid-report.csv",
-        csv([
-          [
-            "Timestamp UTC",
-            "Farm",
-            "Zone",
-            "Device ID",
-            "Sensor",
-            "Value",
-            "Unit",
-            "Quality",
-          ],
-          ...rows.map((r) => {
-            const d = devices.find((x) => x.id === r.deviceId);
-            const s = initialSensors.find((x) => x.id === r.sensorId);
-            return [
-              r.timestamp,
-              d ? farmName(d.farmId) : "",
-              d ? zoneName(d.zoneId) : "",
-              r.deviceId,
-              s?.name,
-              r.quality === "missing" ? "" : r.value,
-              s?.unit,
-              r.quality,
-            ];
-          }),
-        ]),
-        "text/csv",
-      );
-    else
-      downloadFile(
-        "agrivaid-report.json",
-        JSON.stringify(rows, null, 2),
-        "application/json",
-      );
-    notify(
-      `${format.toUpperCase()} report downloaded. ${rows.length.toLocaleString()} records.`,
-      `success`,
-    );
-  };
-  return (
-    <>
-      <PageHead
-        title="Reports & Exports"
-        description="Create an on demand report from the selected demo farm scope."
-        actions={
-          <Button onClick={() => window.print()}>
-            <FileBarChart size={16} /> Printable view
-          </Button>
-        }
-      />
-      <div className="two-column reports-layout">
-        <Card className="padded">
-          <PanelHead
-            title="Report builder"
-            detail="Choose a scope, period, and supported output"
-          />
-          <div className="report-form">
-            <LabelSelect
-              label="Farm"
-              value={farm}
-              onChange={() => {}}
-              options={[
-                [farm, farm === "all" ? "All demo farms" : farmName(farm)],
-              ]}
-            />
-            <LabelSelect
-              label="Device"
-              value={device}
-              onChange={setDevice}
-              options={[
-                ["all", "All devices"],
-                ...devices
-                  .filter((d) => farm === "all" || d.farmId === farm)
-                  .map((d) => [d.id, d.name] as [string, string]),
-              ]}
-            />
-            <LabelSelect
-              label="Period"
-              value={range}
-              onChange={setRange}
-              options={[
-                ["24H", "Last 24 hours"],
-                ["7D", "Last 7 days"],
-              ]}
-            />
-            <LabelSelect
-              label="Format"
-              value={format}
-              onChange={setFormat}
-              options={[
-                ["csv", "CSV telemetry"],
-                ["json", "JSON records"],
-              ]}
-            />
-            <Button variant="primary" onClick={exportReport}>
-              <ArrowDownToLine size={16} /> Download {format.toUpperCase()}
-            </Button>
-          </div>
-          <p className="hint">
-            PDF generation and scheduled delivery require a configured backend.
-            Printing uses your browser's print dialog.
-          </p>
-        </Card>
-        <Card className="padded">
-          <PanelHead title="Report preview" detail="Current filters applied" />
-          <div className="report-preview">
-            <div>
-              <span>Farm scope</span>
-              <strong>
-                {farm === "all" ? "All demo farms" : farmName(farm)}
-              </strong>
-            </div>
-            <div>
-              <span>Period</span>
-              <strong>{range === "24H" ? "24 hours" : "7 days"}</strong>
-            </div>
-            <div>
-              <span>Devices</span>
-              <strong>{ids.size}</strong>
-            </div>
-            <div>
-              <span>Telemetry rows</span>
-              <strong>{rows.length.toLocaleString()}</strong>
-            </div>
-            <div>
-              <span>Timezone</span>
-              <strong>UTC source / Asia/Jakarta display</strong>
-            </div>
-          </div>
-        </Card>
-      </div>
-    </>
-  );
-}
-
 function Profile({
   farm,
   notify,
   theme,
   setTheme,
+  profile,
 }: {
   farm: string;
   notify: (m: string, k?: "error" | "success") => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
+  profile: UserProfile | null;
 }) {
   const [name, setName] = useState(
-    read("agrivaid-profile-name", "Alex Morgan"),
+    profile?.full_name ?? read("agrivaid-profile-name", "Alex Morgan"),
   );
+  useEffect(() => {
+    if (profile?.full_name) setName(profile.full_name);
+  }, [profile?.full_name]);
   const [job, setJob] = useState(
     read("agrivaid-profile-job", "Farm Operations Manager"),
   );
   const [timezone, setTimezone] = useState(
     read("agrivaid-timezone", "Asia/Jakarta"),
   );
-  const save = () => {
+  const save = async () => {
     if (!name.trim()) {
       notify("Full name is required.", "error");
       return;
     }
-    localStorage.setItem("agrivaid-profile-name", JSON.stringify(name.trim()));
-    localStorage.setItem("agrivaid-profile-job", JSON.stringify(job));
-    localStorage.setItem("agrivaid-timezone", JSON.stringify(timezone));
-    notify("Demo profile saved in this browser.", "success");
+    if (profile) {
+      try {
+        const { error } = await supabase.from("user_profiles").update({ full_name: name.trim(), updated_at: new Date().toISOString() }).eq("id", profile.id);
+        if (error) throw error;
+        notify("Profile updated.", "success");
+      } catch (err: any) {
+        notify(err.message || "Failed to save.", "error");
+      }
+    } else {
+      localStorage.setItem("agrivaid-profile-name", JSON.stringify(name.trim()));
+      localStorage.setItem("agrivaid-profile-job", JSON.stringify(job));
+      localStorage.setItem("agrivaid-timezone", JSON.stringify(timezone));
+      notify("Demo profile saved in this browser.", "success");
+    }
   };
   return (
     <>
@@ -2474,13 +1868,13 @@ function Profile({
         <Card className="padded">
           <PanelHead
             title="Personal information"
-            detail="Editable demo profile"
+            detail={profile ? "Synced with your account" : "Editable demo profile"}
           />
           <div className="profile-intro">
-            <span className="avatar large">AM</span>
+            <span className="avatar large">{profile ? profile.full_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "AM"}</span>
             <div>
               <b>{name}</b>
-              <span>Demo administrator · AgrivaID</span>
+              <span>{profile ? `${ROLE_LABELS[profile.role]} · DSTx` : "Demo administrator · DSTx"}</span>
             </div>
           </div>
           <div className="form-grid">
@@ -2494,11 +1888,11 @@ function Profile({
             </label>
             <label>
               Work email
-              <input value="alex@agrivaid.example" disabled />
+              <input value={profile?.email ?? "admin@dstx.io"} disabled />
             </label>
             <label>
               Organization
-              <input value="AgrivaID Demo Workspace" disabled />
+              <input value="DSTx IoT Workspace" disabled />
             </label>
           </div>
         </Card>
@@ -2540,12 +1934,12 @@ function Profile({
         <Card className="padded">
           <PanelHead
             title="Security & account"
-            detail="Authentication provider not configured"
+            detail={profile ? "Connected to Supabase Auth" : "Authentication provider not configured"}
           />
           <div className="key-values">
             <div>
               <span>Role</span>
-              <b>Demo administrator</b>
+              <b>{profile ? ROLE_LABELS[profile.role] : "Demo administrator"}</b>
             </div>
             <div>
               <span>Two factor authentication</span>
@@ -2563,6 +1957,509 @@ function Profile({
         </Card>
       </div>
     </>
+  );
+}
+
+const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
+  { label: "Device", permissions: ["devices.view", "devices.edit", "devices.create", "devices.delete"] },
+  { label: "Sensor", permissions: ["sensors.view", "sensors.edit"] },
+  { label: "Member", permissions: ["users.view", "users.edit", "users.create", "users.delete"] },
+  { label: "Settings", permissions: ["settings.view", "settings.edit"] },
+];
+
+const PERM_LABELS: Record<string, string> = {
+  "devices.view": "Dapat melihat device",
+  "devices.edit": "Dapat mengubah device",
+  "devices.create": "Dapat menambah device",
+  "devices.delete": "Dapat menghapus device",
+  "sensors.view": "Dapat melihat sensor",
+  "sensors.edit": "Dapat mengubah sensor",
+  "users.view": "Dapat melihat anggota",
+  "users.edit": "Dapat mengubah anggota",
+  "users.create": "Dapat mengundang anggota",
+  "users.delete": "Dapat menghapus anggota",
+  "settings.view": "Dapat melihat pengaturan",
+  "settings.edit": "Dapat mengubah pengaturan",
+};
+
+function UserManagement({
+  notify,
+  profile,
+}: {
+  notify: (m: string, k?: "error" | "success") => void;
+  profile: UserProfile | null;
+}) {
+  const allRoles: Role[] = ["admin", "manager", "mandor", "operator", "asisten"];
+  const [selectedRole, setSelectedRole] = useState<Role>("admin");
+  const [tab, setTab] = useState<"users" | "permissions">("users");
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [editUser, setEditUser] = useState<UserProfile | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newRoleOpen, setNewRoleOpen] = useState(false);
+
+  const [matrix, setMatrix] = useState<Record<Role, Set<string>>>(() => {
+    const m: Record<string, Set<string>> = {};
+    for (const r of allRoles) m[r] = new Set(DEFAULT_ROLE_PERMISSIONS[r]);
+    return m as Record<Role, Set<string>>;
+  });
+  const [permLoading, setPermLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const loadUsers = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("user_profiles").select("*").order("created_at", { ascending: false });
+    if (error) notify(error.message, "error");
+    else setUsers((data ?? []) as UserProfile[]);
+    setLoading(false);
+  };
+
+  const loadPermissions = async () => {
+    const { data, error } = await supabase.from("role_permissions").select("role, permission");
+    if (!error && data && data.length > 0) {
+      const m: Record<string, Set<string>> = {};
+      for (const r of allRoles) m[r] = new Set<string>();
+      for (const row of data) {
+        if (m[row.role]) m[row.role].add(row.permission);
+      }
+      setMatrix(m as Record<Role, Set<string>>);
+    }
+    setPermLoading(false);
+  };
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("um-role-labels") || "{}");
+      for (const k of Object.keys(saved)) if (k in ROLE_LABELS) (ROLE_LABELS as any)[k] = saved[k];
+    } catch {}
+    loadUsers();
+    loadPermissions();
+  }, []);
+
+  const filteredUsers = users.filter(
+    (u) => u.role === selectedRole && (
+      !search || u.full_name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
+    )
+  );
+
+  const [deleteConfirm, setDeleteConfirm] = useState<UserProfile | null>(null);
+
+  const handleDelete = async (u: UserProfile) => {
+    if (u.id === profile?.id) { notify("Tidak bisa menghapus akun sendiri.", "error"); return; }
+    setDeleteConfirm(u);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    const { error } = await supabase.from("user_profiles").delete().eq("id", deleteConfirm.id);
+    if (error) notify(error.message, "error");
+    else { notify(`${deleteConfirm.full_name} dihapus.`); loadUsers(); }
+    setDeleteConfirm(null);
+  };
+
+  const togglePerm = (perm: string) => {
+    if (selectedRole === "admin") return;
+    setMatrix((prev) => {
+      const next = { ...prev };
+      const s = new Set(prev[selectedRole]);
+      if (s.has(perm)) s.delete(perm); else s.add(perm);
+      next[selectedRole] = s;
+      return next;
+    });
+  };
+
+  const savePerms = async () => {
+    setSaving(true);
+    const rows: { role: string; permission: string }[] = [];
+    for (const role of allRoles) {
+      for (const perm of matrix[role]) {
+        rows.push({ role, permission: perm });
+      }
+    }
+    const { error: delErr } = await supabase.from("role_permissions").delete().in("role", allRoles);
+    if (delErr) { notify(delErr.message, "error"); setSaving(false); return; }
+    const { error: insErr } = await supabase.from("role_permissions").insert(rows);
+    if (insErr) notify(insErr.message, "error");
+    else notify("Hak akses disimpan.");
+    setSaving(false);
+  };
+
+  const userCountByRole = (r: Role) => users.filter(u => u.role === r).length;
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / 25));
+  const [editRoleOpen, setEditRoleOpen] = useState<Role | null>(null);
+  const [deleteRoleConfirm, setDeleteRoleConfirm] = useState<Role | null>(null);
+  const [roleMenuOpen, setRoleMenuOpen] = useState<Role | null>(null);
+  const [hiddenRoles, setHiddenRoles] = useState<Role[]>(() => {
+    try { return JSON.parse(localStorage.getItem("um-hidden-roles") || "[]"); } catch { return []; }
+  });
+
+  const customRoles: Role[] = allRoles.filter(r => r !== "admin" && !hiddenRoles.includes(r));
+
+  const handleDeleteRole = (r: Role) => {
+    setRoleMenuOpen(null);
+    if (r === "admin") { notify("Role Admin tidak bisa dihapus.", "error"); return; }
+    const count = userCountByRole(r);
+    if (count > 0) {
+      notify(`Role ${ROLE_LABELS[r]} masih digunakan oleh ${count} pengguna. Pindahkan pengguna ke role lain terlebih dahulu.`, "error");
+      return;
+    }
+    setDeleteRoleConfirm(r);
+  };
+
+  const confirmDeleteRole = () => {
+    if (!deleteRoleConfirm) return;
+    const next = [...hiddenRoles, deleteRoleConfirm];
+    setHiddenRoles(next);
+    localStorage.setItem("um-hidden-roles", JSON.stringify(next));
+    if (selectedRole === deleteRoleConfirm) setSelectedRole("admin");
+    notify(`Role ${ROLE_LABELS[deleteRoleConfirm]} dihapus.`);
+    setDeleteRoleConfirm(null);
+  };
+
+  return (
+    <>
+      <PageHead title="Peran Pengguna" description="Kelola peran, pengguna, dan hak akses." />
+      <div className="um-layout">
+        <aside className="um-sidebar" onClick={() => { if (roleMenuOpen) setRoleMenuOpen(null); }}>
+          <button className={`um-role-item ${selectedRole === "admin" ? "active" : ""}`} onClick={() => setSelectedRole("admin")}>
+            Admin
+          </button>
+          <div className="um-sidebar-divider" />
+          <div className="um-sidebar-section">Custom Role</div>
+          {customRoles.length > 0 ? customRoles.map((r) => (
+            <div key={r} className="um-role-item-wrap">
+              <button className={`um-role-item ${selectedRole === r ? "active" : ""}`} onClick={() => setSelectedRole(r)}>
+                {ROLE_LABELS[r]}
+              </button>
+              <button className="um-role-menu-btn" onClick={(e) => { e.stopPropagation(); setRoleMenuOpen(roleMenuOpen === r ? null : r); }}>
+                <MoreHorizontal size={16} />
+              </button>
+              {roleMenuOpen === r && (
+                <div className="um-role-dropdown" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => { setRoleMenuOpen(null); setEditRoleOpen(r); }}>
+                    <Pencil size={14} /> Edit
+                  </button>
+                  <button className="um-dropdown-danger" onClick={() => handleDeleteRole(r)}>
+                    <Trash2 size={14} /> Hapus
+                  </button>
+                </div>
+              )}
+            </div>
+          )) : (
+            <div className="um-sidebar-empty">
+              <Info size={14} />
+              <span>Belum ada role ditambahkan</span>
+            </div>
+          )}
+          <button className="um-new-role-btn" onClick={() => setNewRoleOpen(true)}>
+            <Plus size={14} /> Role Baru
+          </button>
+        </aside>
+
+        <div className="um-main">
+          <div className="um-tabs">
+            <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
+              <Users size={15} /> Pengguna
+            </button>
+            <button className={tab === "permissions" ? "active" : ""} onClick={() => setTab("permissions")}>
+              <Shield size={15} /> Hak Akses
+            </button>
+          </div>
+
+          {tab === "users" && (
+            <div className="um-content">
+              <div className="um-search-bar">
+                <div className="um-search-input">
+                  <Search size={16} />
+                  <input placeholder="Nama User" value={search} onChange={e => setSearch(e.target.value)} />
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table className="um-table">
+                  <thead>
+                    <tr>
+                      <th>Nama</th>
+                      <th>Email</th>
+                      <th>Verified</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr><td colSpan={4} style={{ padding: "2rem", textAlign: "center", opacity: 0.5 }}>Memuat...</td></tr>
+                    ) : filteredUsers.length === 0 ? (
+                      <tr><td colSpan={4} style={{ padding: "2rem", textAlign: "center", opacity: 0.5 }}>Tidak ada pengguna dengan role ini.</td></tr>
+                    ) : filteredUsers.map((u) => (
+                      <tr key={u.id}>
+                        <td>{u.full_name}</td>
+                        <td>{u.email}</td>
+                        <td>
+                          <span className={`um-verified ${u.is_active ? "yes" : "no"}`}>
+                            {u.is_active ? <Check size={14} /> : <X size={14} />}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button className="um-action-btn" onClick={() => setEditUser(u)}>
+                              <Pencil size={14} /> Ubah Role
+                            </button>
+                            {u.id !== profile?.id && (
+                              <button className="um-action-btn um-action-danger" onClick={() => handleDelete(u)}>
+                                <Trash2 size={14} /> Hapus
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="um-pagination">
+                <span>Tampilkan</span>
+                <select className="um-page-select" defaultValue={25}><option>25</option><option>50</option></select>
+                <span>{totalPages > 0 ? `1 dari ${totalPages} Halaman` : "0 Halaman"}</span>
+                <div className="um-page-nav">
+                  <button className="icon-button" disabled><ChevronLeft size={16} /></button>
+                  <button className="icon-button" disabled><ChevronRight size={16} /></button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tab === "permissions" && (
+            <div className="um-content">
+              {selectedRole === "admin" && (
+                <div className="um-admin-banner">
+                  <AlertTriangle size={16} />
+                  Admin instansi memiliki semua akses. Hak akses tidak dapat di ubah!
+                </div>
+              )}
+              {permLoading ? (
+                <p style={{ padding: "2rem", opacity: 0.5 }}>Memuat hak akses...</p>
+              ) : (
+                <>
+                  <table className="um-perm-table">
+                    <thead>
+                      <tr>
+                        <th>Resource</th>
+                        <th>Hak Akses</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {PERMISSION_GROUPS.map((g) => (
+                        <React.Fragment key={g.label}>
+                          <tr className="um-perm-row">
+                            <td className="um-perm-resource">{g.label}</td>
+                            <td className="um-perm-checks">
+                              {g.permissions.map((p) => (
+                                <label key={p} className="um-perm-check-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={matrix[selectedRole]?.has(p) ?? false}
+                                    disabled={selectedRole === "admin"}
+                                    onChange={() => togglePerm(p)}
+                                  />
+                                  {PERM_LABELS[p] || p}
+                                </label>
+                              ))}
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                  {selectedRole !== "admin" && (
+                    <div style={{ padding: "16px 0", display: "flex", justifyContent: "flex-end" }}>
+                      <Button variant="primary" onClick={savePerms} disabled={saving}>{saving ? "Menyimpan..." : "Simpan Hak Akses"}</Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {editUser && (
+        <UserEditModal user={editUser} onClose={() => setEditUser(null)} notify={notify} onSave={loadUsers} hiddenRoles={hiddenRoles} />
+      )}
+      {addOpen && (
+        <UserAddModal onClose={() => setAddOpen(false)} notify={notify} onSave={loadUsers} hiddenRoles={hiddenRoles} />
+      )}
+      {newRoleOpen && (
+        <Modal title="Buat Role Baru" onClose={() => setNewRoleOpen(false)}>
+          <NewRoleForm onClose={() => setNewRoleOpen(false)} notify={notify} />
+        </Modal>
+      )}
+      {deleteConfirm && (
+        <Modal title="Hapus Pengguna" onClose={() => setDeleteConfirm(null)}>
+          <div className="modal-body">
+            <div className="um-admin-banner" style={{ background: "#fef0f0", borderColor: "#f0c0c0", color: "#b00" }}>
+              <AlertTriangle size={16} />
+              Apakah Anda yakin ingin menghapus pengguna ini? Tindakan ini tidak dapat dibatalkan.
+            </div>
+            <div style={{ padding: "8px 0", fontSize: "0.9rem" }}>
+              <div><b>Nama:</b> {deleteConfirm.full_name}</div>
+              <div><b>Email:</b> {deleteConfirm.email}</div>
+              <div><b>Role:</b> {ROLE_LABELS[deleteConfirm.role]}</div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <Button onClick={() => setDeleteConfirm(null)}>Batal</Button>
+            <Button variant="danger" onClick={confirmDelete}>Hapus</Button>
+          </div>
+        </Modal>
+      )}
+      {deleteRoleConfirm && (
+        <Modal title="Hapus Role" onClose={() => setDeleteRoleConfirm(null)}>
+          <div className="modal-body">
+            <div className="um-admin-banner" style={{ background: "#fef0f0", borderColor: "#f0c0c0", color: "#b00" }}>
+              <AlertTriangle size={16} />
+              Apakah Anda yakin ingin menghapus role <b>{ROLE_LABELS[deleteRoleConfirm]}</b>? Role akan disembunyikan dari daftar.
+            </div>
+          </div>
+          <div className="modal-footer">
+            <Button onClick={() => setDeleteRoleConfirm(null)}>Batal</Button>
+            <Button variant="danger" onClick={confirmDeleteRole}>Hapus Role</Button>
+          </div>
+        </Modal>
+      )}
+      {editRoleOpen && (
+        <EditRoleModal role={editRoleOpen} onClose={() => setEditRoleOpen(null)} notify={notify} />
+      )}
+    </>
+  );
+}
+
+function NewRoleForm({ onClose, notify }: { onClose: () => void; notify: (m: string, k?: "error" | "success") => void }) {
+  const [name, setName] = useState("");
+  return (
+    <>
+      <div className="modal-body">
+        <div className="um-admin-banner" style={{ marginBottom: 12 }}>
+          <Info size={16} />
+          Role ini akan menentukan apa yang bisa dilakukan oleh pengguna yang diberi peran ini. Masukkan nama role (misalnya: Administrator, Manager, dll.)
+        </div>
+        <label className="modal-label">
+          Nama Role <span style={{ color: "var(--danger)" }}>*</span>
+          <input className="ch-edit-input" value={name} onChange={e => setName(e.target.value)} placeholder="Masukkan Nama Role" />
+        </label>
+      </div>
+      <div className="modal-footer">
+        <Button onClick={onClose}>Batal</Button>
+        <Button variant="primary" disabled={!name.trim()} onClick={() => { notify("Custom role belum didukung oleh database.", "error"); }}>Simpan</Button>
+      </div>
+    </>
+  );
+}
+
+function EditRoleModal({ role, onClose, notify }: { role: Role; onClose: () => void; notify: (m: string, k?: "error" | "success") => void }) {
+  const [name, setName] = useState(ROLE_LABELS[role]);
+  const save = () => {
+    if (!name.trim()) { notify("Nama role wajib diisi.", "error"); return; }
+    ROLE_LABELS[role] = name.trim();
+    localStorage.setItem("um-role-labels", JSON.stringify(ROLE_LABELS));
+    notify(`Role diperbarui menjadi "${name.trim()}".`);
+    onClose();
+  };
+  return (
+    <Modal title="Edit Role" onClose={onClose}>
+      <div className="modal-body">
+        <label className="modal-label">
+          Nama Role <span style={{ color: "var(--danger)" }}>*</span>
+          <input className="ch-edit-input" value={name} onChange={e => setName(e.target.value)} placeholder="Masukkan nama role" />
+        </label>
+      </div>
+      <div className="modal-footer">
+        <Button onClick={onClose}>Batal</Button>
+        <Button variant="primary" onClick={save} disabled={!name.trim()}>Simpan</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function UserEditModal({ user, onClose, notify, onSave, hiddenRoles = [] }: { user: UserProfile; onClose: () => void; notify: (m: string, k?: "error" | "success") => void; onSave: () => void; hiddenRoles?: Role[] }) {
+  const [name, setName] = useState(user.full_name);
+  const [role, setRole] = useState<Role>(user.role);
+  const [active, setActive] = useState(user.is_active);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    if (!name.trim()) { notify("Nama wajib diisi.", "error"); return; }
+    setBusy(true);
+    const { error } = await supabase.from("user_profiles").update({
+      full_name: name.trim(), role, is_active: active, updated_at: new Date().toISOString(),
+    }).eq("id", user.id);
+    setBusy(false);
+    if (error) notify(error.message, "error");
+    else { notify(`${name.trim()} diperbarui.`); onSave(); onClose(); }
+  };
+
+  return (
+    <Modal title="Ubah Role" onClose={onClose}>
+      <div className="modal-body">
+        <label className="modal-label">Email<div className="modal-static">{user.email}</div></label>
+        <label className="modal-label">Nama lengkap<input className="ch-edit-input" value={name} onChange={e => setName(e.target.value)} /></label>
+        <label className="modal-label">Role
+          <select className="ch-edit-input" value={role} onChange={e => setRole(e.target.value as Role)}>
+            {(Object.entries(ROLE_LABELS) as [Role, string][]).filter(([v]) => !hiddenRoles.includes(v)).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        <label className="modal-label" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} /> Aktif
+        </label>
+      </div>
+      <div className="modal-footer">
+        <Button onClick={onClose}>Batal</Button>
+        <Button variant="primary" onClick={save} disabled={busy}>{busy ? "Menyimpan..." : "Simpan"}</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function UserAddModal({ onClose, notify, onSave, hiddenRoles = [] }: { onClose: () => void; notify: (m: string, k?: "error" | "success") => void; onSave: () => void; hiddenRoles?: Role[] }) {
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState<Role>("asisten");
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) { notify("Masukkan email yang valid.", "error"); return; }
+    if (!name.trim()) { notify("Nama wajib diisi.", "error"); return; }
+    if (password.length < 8) { notify("Password minimal 8 karakter.", "error"); return; }
+    setBusy(true);
+    try {
+      await signUp(email, password, name.trim(), role);
+      notify(`${name.trim()} berhasil dibuat.`);
+      onSave();
+      onClose();
+    } catch (err: any) {
+      notify(err.message || "Gagal membuat pengguna.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Tambah Pengguna" onClose={onClose}>
+      <div className="modal-body">
+        <label className="modal-label">Email<input className="ch-edit-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="user@example.com" /></label>
+        <label className="modal-label">Nama lengkap<input className="ch-edit-input" value={name} onChange={e => setName(e.target.value)} /></label>
+        <label className="modal-label">Password<input className="ch-edit-input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min. 8 karakter" /></label>
+        <label className="modal-label">Role
+          <select className="ch-edit-input" value={role} onChange={e => setRole(e.target.value as Role)}>
+            {(Object.entries(ROLE_LABELS) as [Role, string][]).filter(([v]) => !hiddenRoles.includes(v as Role)).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="modal-footer">
+        <Button onClick={onClose}>Batal</Button>
+        <Button variant="primary" onClick={save} disabled={busy}>{busy ? "Membuat..." : "Buat pengguna"}</Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -2666,7 +2563,7 @@ function SettingsPage({
               {farms.map((f) => (
                 <div className="farm-row" key={f.id}>
                   <span className="farm-icon">
-                    <Leaf size={18} />
+                    <DSTxLogo size={18} />
                   </span>
                   <div>
                     <b>{f.name}</b>
@@ -2837,25 +2734,30 @@ function AuthPage({
       return;
     }
     setBusy(true);
-    setTimeout(() => {
-      setBusy(false);
-      if (forgot)
-        setSuccess(
-          "If an account exists, a reset request would be sent by the configured provider. Email delivery is unavailable in demo mode.",
-        );
-      else if (reset)
-        setError(
-          "Password reset is unavailable: no authentication provider or valid reset token is configured.",
-        );
-      else if (signup)
-        setSuccess(
-          "Form validated. Account creation and email verification require a configured authentication provider. Try demo access below.",
-        );
-      else
-        setError(
-          "Production sign in is unavailable. Use “Enter demo workspace” to explore simulated data.",
-        );
-    }, 350);
+    (async () => {
+      try {
+        if (forgot) {
+          const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email);
+          if (resetErr) throw resetErr;
+          setSuccess("If an account exists, a password reset link has been sent to your email.");
+        } else if (reset) {
+          const { error: updateErr } = await supabase.auth.updateUser({ password });
+          if (updateErr) throw updateErr;
+          setSuccess("Password updated. You can now sign in.");
+          setTimeout(() => go("/login"), 1500);
+        } else if (signup) {
+          await signUp(email, password, name, "asisten");
+          setSuccess("Account created! Check your email to verify, or use demo access below.");
+        } else {
+          await signIn(email, password);
+          login();
+        }
+      } catch (err: any) {
+        setError(err.message || "Authentication failed.");
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
   return (
     <div className="auth-page">
@@ -2863,29 +2765,55 @@ function AuthPage({
         <Brand />
         <div className="auth-message">
           <span className="auth-kicker">
-            <span className="status-pulse" /> SMART FARMING INTELLIGENCE
+            <span className="status-pulse" /> IOT MONITORING PLATFORM
           </span>
           <h1>
-            See your fields
+            Monitor smarter,
             <br />
-            with clarity.
+            act faster.
           </h1>
           <p>
-            Track field conditions, inspect devices, and turn telemetry into
-            useful decisions across your farm portfolio.
+            Track devices, inspect sensor data, and turn telemetry into
+            actionable insights across your IoT deployments.
           </p>
+          <div className="auth-iot-flow" role="img" aria-label="Live IoT device data flowing securely to edge compute">
+            <div className="auth-iot-node auth-iot-device">
+              <span className="auth-node-icon"><RadioTower size={22} /></span>
+              <span>
+                <small>FIELD DEVICE</small>
+                <b>Sensor node</b>
+              </span>
+              <i className="auth-node-status" aria-hidden="true" />
+            </div>
+            <div className="auth-data-link" aria-hidden="true">
+              <span className="auth-link-line" />
+              <i className="auth-packet packet-one" />
+              <i className="auth-packet packet-two" />
+              <i className="auth-packet packet-three" />
+              <span className="auth-link-label"><Wifi size={12} /> encrypted telemetry</span>
+            </div>
+            <div className="auth-iot-node auth-iot-compute">
+              <span className="auth-node-icon"><Cpu size={22} /></span>
+              <span>
+                <small>EDGE COMPUTE</small>
+                <b>Processing live</b>
+              </span>
+              <span className="auth-compute-bars" aria-hidden="true"><i /><i /><i /></span>
+            </div>
+            <span className="auth-cloud-node" aria-hidden="true"><Server size={15} /></span>
+          </div>
           <div className="auth-tiles">
             <div>
-              <b>12</b>
-              <span>sample devices</span>
+              <b>1</b>
+              <span>weather station</span>
             </div>
             <div>
-              <b>3</b>
-              <span>demo farms</span>
+              <b>8</b>
+              <span>sensor channels</span>
             </div>
             <div>
-              <b>7d</b>
-              <span>sensor history</span>
+              <b>Live</b>
+              <span>data feed</span>
             </div>
           </div>
         </div>
@@ -2899,11 +2827,11 @@ function AuthPage({
           <Brand />
         </div>
         <div className="auth-form-card">
-          <div className="auth-label">AGRIVAID ACCOUNT</div>
+          <div className="auth-label">DSTX ACCOUNT</div>
           <h2>{title}</h2>
           <p>
             {signup
-              ? "Set up your smart agriculture workspace."
+              ? "Set up your IoT monitoring workspace."
               : forgot
                 ? "Enter your email to request recovery."
                 : reset
@@ -3061,7 +2989,7 @@ function AuthPage({
               );
             }}
           >
-            <Leaf size={16} /> Enter demo workspace
+            <DSTxLogo size={16} /> Enter demo workspace
           </Button>
           <p className="auth-switch">
             {signup || forgot || reset ? (
@@ -3071,7 +2999,7 @@ function AuthPage({
               </>
             ) : (
               <>
-                New to AgrivaID?{" "}
+                New to DSTx?{" "}
                 <button onClick={() => go("/signup")}>Create account</button>
               </>
             )}
@@ -3098,16 +3026,17 @@ function AuthPage({
 }
 
 export default function App() {
+  useLiveData();
   const [path, go] = useRoute();
   const [theme, setThemeState] = useState<Theme>(
     () => (localStorage.getItem("agrivaid-theme") as Theme) || "system",
   );
-  const [farm, setFarmState] = useState(
-    () => localStorage.getItem("agrivaid-farm") || "all",
-  );
+  const farm = "all";
   const [session, setSession] = useState(
     () => localStorage.getItem("agrivaid-demo-session") === "true",
   );
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
   const [devices, setDevices] = useState<Device[]>(() =>
     read("agrivaid-devices", initialDevices),
   );
@@ -3127,10 +3056,6 @@ export default function App() {
     setThemeState(v);
     localStorage.setItem("agrivaid-theme", v);
   };
-  const setFarm = (v: string) => {
-    setFarmState(v);
-    localStorage.setItem("agrivaid-farm", v);
-  };
   useEffect(() => {
     const apply = () => {
       document.documentElement.dataset.theme =
@@ -3146,6 +3071,35 @@ export default function App() {
     return () => m.removeEventListener("change", apply);
   }, [theme]);
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (s) {
+        setSession(true);
+        getCurrentProfile().then((p) => {
+          if (p) {
+            setProfile(p);
+            getUserPermissions(p.role).then(setPermissions);
+          }
+        });
+      }
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (s) {
+        setSession(true);
+        getCurrentProfile().then((p) => {
+          if (p) {
+            setProfile(p);
+            getUserPermissions(p.role).then(setPermissions);
+          }
+        });
+      } else if (!localStorage.getItem("agrivaid-demo-session")) {
+        setSession(false);
+        setProfile(null);
+        setPermissions([]);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+  useEffect(() => {
     if (!session && !isPublic(path)) {
       sessionStorage.setItem("agrivaid-return", path + location.search);
       go("/login");
@@ -3158,9 +3112,12 @@ export default function App() {
     sessionStorage.removeItem("agrivaid-return");
     go(target);
   };
-  const logout = () => {
+  const logout = async () => {
     localStorage.removeItem("agrivaid-demo-session");
+    try { await signOut(); } catch {}
     setSession(false);
+    setProfile(null);
+    setPermissions([]);
     go("/login");
   };
   const props = { devices, alerts, farm, go, notify, refresh };
@@ -3174,10 +3131,6 @@ export default function App() {
       page = (
         <DeviceDetail {...props} id={decodeURIComponent(path.split("/")[2])} />
       );
-    else if (path === "/analytics") page = <Analytics {...props} />;
-    else if (path === "/historical-data") page = <HistoryPage {...props} />;
-    else if (path === "/alerts") page = <AlertsPage {...props} />;
-    else if (path === "/reports") page = <Reports {...props} />;
     else if (path === "/firmware-ota") page = <FirmwareOta devices={devices} farm={farm} refresh={refresh} />;
     else if (path === "/profile")
       page = (
@@ -3186,7 +3139,12 @@ export default function App() {
           notify={notify}
           theme={theme}
           setTheme={setTheme}
+          profile={profile}
         />
+      );
+    else if (path === "/users" && profile?.role === "admin")
+      page = (
+        <UserManagement notify={notify} profile={profile} />
       );
     else if (path === "/settings")
       page = (
@@ -3214,10 +3172,10 @@ export default function App() {
           theme={theme}
           setTheme={setTheme}
           farm={farm}
-          setFarm={setFarm}
           devices={devices}
           alerts={alerts}
           logout={logout}
+          profile={profile}
         >
           {page}
         </AppShell>

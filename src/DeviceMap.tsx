@@ -31,10 +31,23 @@ const icons = {
   control: Settings2,
 };
 type MapStyle = "light" | "standard";
-const tiles: Record<MapStyle, { url: string; attribution: string }> = {
+const tiles: Record<
+  MapStyle,
+  {
+    url: string;
+    attribution: string;
+    subdomains?: string;
+    labels?: string;
+    maxNativeZoom?: number;
+  }
+> = {
   light: {
-    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    labels:
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+    maxNativeZoom: 16,
+    attribution:
+      'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   },
   standard: {
     url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -112,6 +125,7 @@ export default function DeviceMap({ devices, farm, go }: { devices: Device[]; fa
   const mapElement = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const tileLayer = useRef<L.TileLayer | null>(null);
+  const labelLayer = useRef<L.TileLayer | null>(null);
   const markerLayer = useRef<L.LayerGroup | null>(null);
   const markers = useRef(new Map<string, L.Marker>());
   const [style, setStyle] = useState<MapStyle>("light");
@@ -141,9 +155,21 @@ export default function DeviceMap({ devices, farm, go }: { devices: Device[]; fa
   useEffect(() => {
     if (!map.current) return;
     if (tileLayer.current) map.current.removeLayer(tileLayer.current);
+    if (labelLayer.current) map.current.removeLayer(labelLayer.current);
     const source = tiles[style];
-    tileLayer.current = L.tileLayer(source.url, { attribution: source.attribution, maxZoom: 19 }).addTo(map.current);
+    const options = {
+      attribution: source.attribution,
+      subdomains: source.subdomains ?? "abc",
+      maxZoom: 19,
+      maxNativeZoom: source.maxNativeZoom,
+    };
+    tileLayer.current = L.tileLayer(source.url, options).addTo(map.current);
     tileLayer.current.bringToBack();
+    labelLayer.current = source.labels
+      ? L.tileLayer(source.labels, { ...options, attribution: "" }).addTo(
+          map.current,
+        )
+      : null;
   }, [style]);
 
   useEffect(() => {
@@ -179,13 +205,13 @@ export default function DeviceMap({ devices, farm, go }: { devices: Device[]; fa
     if (positions.length) map.current?.fitBounds(L.latLngBounds(positions.map((p) => [p.latitude, p.longitude])), { padding: [75, 75], maxZoom: 12 });
   };
   return <section className="device-map-card map-full" aria-label="Installed device map">
-    <div className="map-full-heading"><div><span>LIVE NETWORK / DEMO</span><h2>Device location map</h2><p>{count} installed demo devices · West Java, Indonesia</p></div><span className="map-demo-badge">Approximate demo positions</span></div>
+    <div className="map-full-heading"><div><span>FIELD NETWORK</span><h2>Device Distribution</h2><p>Explore device locations and select a marker for more detail.</p></div><span className="map-demo-badge">{devices.length} connected points</span></div>
     <div className={`map-stage map-style-${style}`}>
       <div ref={mapElement} className="map-leaflet" aria-label="Interactive map of installed devices" />
       <div className="map-top-left">
         {showSearch ? <div className="map-search-panel"><div className="map-search-input"><Search size={17} /><input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a device or site" aria-label="Find device on map" /><button aria-label="Close map search" onClick={() => { setShowSearch(false); setQuery(""); }}><X size={17} /></button></div>{matches.length > 0 && <div className="map-search-results">{matches.map((device) => <button key={device.id} onClick={() => focus(device)}><b>{device.name}</b><small>{farmName(device.farmId)} · {device.id}</small></button>)}</div>}{query && !matches.length && <div className="map-search-empty">No matching devices</div>}</div> : <button className="map-control" aria-label="Search map devices" onClick={() => setShowSearch(true)}><Search size={20} /></button>}
       </div>
-      <div className="map-top-right"><button className="map-control" aria-label="Map layers" aria-expanded={showLayers} onClick={() => setShowLayers(!showLayers)}><Layers3 size={20} /></button>{showLayers && <div className="map-layer-menu"><strong>Base map</strong><button className={style === "light" ? "active" : ""} onClick={() => { setStyle("light"); setShowLayers(false); }}><MapIcon size={15} /> Light streets</button><button className={style === "standard" ? "active" : ""} onClick={() => { setStyle("standard"); setShowLayers(false); }}><MapIcon size={15} /> Standard</button></div>}</div>
+      <div className="map-top-right"><button className="map-control" aria-label="Map layers" aria-expanded={showLayers} onClick={() => setShowLayers(!showLayers)}><Layers3 size={20} /></button>{showLayers && <div className="map-layer-menu"><strong>Base map</strong><button className={style === "light" ? "active" : ""} onClick={() => { setStyle("light"); setShowLayers(false); }}><MapIcon size={15} /> Light gray</button><button className={style === "standard" ? "active" : ""} onClick={() => { setStyle("standard"); setShowLayers(false); }}><MapIcon size={15} /> Standard</button></div>}</div>
       <div className="map-bottom-right"><button className="map-control" aria-label="Zoom in" onClick={() => map.current?.zoomIn()}><Plus size={20} /></button><button className="map-control" aria-label="Zoom out" onClick={() => map.current?.zoomOut()}><Minus size={20} /></button><button className="map-control" aria-label="Fit all devices" onClick={resetView}><LocateFixed size={19} /></button></div>
       <div className="map-bottom-left"><button className="map-drawer-tab" aria-expanded={showLegend} onClick={() => setShowLegend(!showLegend)}>Legend <ChevronDown size={16} className={showLegend ? "rotated" : ""} /></button>{showLegend && <div className="map-legend-panel"><b>Device type</b>{Object.entries(kindLabels).map(([kind, label]) => { const Icon = icons[kind as keyof typeof icons]; return <span key={kind}><i className={`kind-${kind}`}><Icon size={14} /></i>{label}</span>; })}<b>Status ring</b><span><i className="map-status-dot online" /> Online</span><span><i className="map-status-dot warning" /> Warning</span><span><i className="map-status-dot offline" /> Offline / critical</span></div>}</div>
       <div className="map-bottom-center"><button className="map-drawer-tab" aria-expanded={showData} onClick={() => setShowData(!showData)}>Monitoring data <ChevronDown size={16} className={showData ? "rotated" : ""} /></button>{showData && <div className="map-data-panel"><div className="map-data-head"><b>Installed devices</b><span>{devices.length} total · {devices.filter((d) => farm === "all" || d.farmId === farm).length} in active scope</span></div><div className="map-data-list">{devices.map((device) => { const Icon = icons[deviceKind(device)]; return <button key={device.id} onClick={() => focus(device)}><span className={`map-list-icon kind-${deviceKind(device)}`}><Icon size={15} /></span><span><b>{device.name}</b><small>{farmName(device.farmId)} · {device.id}</small></span><i className={`map-list-dot status-${device.status}`} /></button>; })}</div></div>}</div>

@@ -1,395 +1,237 @@
 import type { Alert, Device, Farm, Sensor, Telemetry, Zone } from "./types";
-import { seedLocations } from "./deviceGeo";
-export const DEMO_NOW = "2026-10-18T04:42:00.000Z";
+
+export let DEMO_NOW = new Date().toISOString();
+
 export const farms: Farm[] = [
   {
-    id: "greenhouse",
-    name: "Greenhouse A",
-    location: "Bogor, West Java",
+    id: "pens",
+    name: "AWS Pens",
+    location: "Indonesia",
     timezone: "Asia/Jakarta",
-    description: "Protected cultivation and climate monitoring",
-  },
-  {
-    id: "north",
-    name: "North Field",
-    location: "Cianjur, West Java",
-    timezone: "Asia/Jakarta",
-    description: "Open field soil and weather monitoring",
-  },
-  {
-    id: "irrigation",
-    name: "Irrigation Zone B",
-    location: "Sukabumi, West Java",
-    timezone: "Asia/Jakarta",
-    description: "Reservoir and irrigation distribution monitoring",
+    description: "Automatic Weather Station — Pens site",
   },
 ];
+
 export const zones: Zone[] = [
   {
-    id: "gha-1",
-    farmId: "greenhouse",
-    name: "Glasshouse East",
-    description: "East growing benches",
+    id: "pens-1",
+    farmId: "pens",
+    name: "Station Area",
+    description: "Main weather station deployment",
   },
   {
-    id: "gha-2",
-    farmId: "greenhouse",
-    name: "Nursery West",
-    description: "Propagation area",
-  },
-  {
-    id: "north-1",
-    farmId: "north",
-    name: "Plot N1",
-    description: "Northern crop rows",
-  },
-  {
-    id: "north-2",
-    farmId: "north",
-    name: "Weather Ridge",
-    description: "Exposed weather station",
-  },
-  {
-    id: "irb-1",
-    farmId: "irrigation",
-    name: "Reservoir B",
-    description: "Water storage",
-  },
-  {
-    id: "irb-2",
-    farmId: "irrigation",
-    name: "Valve Corridor",
-    description: "Distribution channel",
+    id: "pens-2",
+    farmId: "pens",
+    name: "Pond Area",
+    description: "Water quality monitoring zone",
   },
 ];
+
 const ago = (minutes: number) =>
-  new Date(Date.parse(DEMO_NOW) - minutes * 60000).toISOString();
+  new Date(Date.now() - minutes * 60000).toISOString();
+
 export const initialDevices: Device[] = [
-  [
-    "AGR-ESP32-001",
-    "greenhouse",
-    "gha-1",
-    "Greenhouse Node 01",
-    "Enviro Node S3",
-    "MQTT",
-    "online",
-    1,
-    92,
-    3.96,
-    -67,
-    30,
-  ],
-  [
-    "AGR-ESP32-002",
-    "greenhouse",
-    "gha-1",
-    "Greenhouse Node 02",
-    "Enviro Node S3",
-    "MQTT",
-    "online",
-    2,
-    88,
-    3.91,
-    -71,
-    30,
-  ],
-  [
-    "AGR-RS485-003",
-    "greenhouse",
-    "gha-2",
-    "Nursery Soil Array",
-    "Soil Array M4",
-    "RS485 / Modbus",
-    "warning",
-    4,
-    44,
-    3.72,
-    -79,
-    60,
-  ],
-  [
-    "AGR-HTTP-004",
-    "greenhouse",
-    "gha-2",
-    "Nursery Light Station",
-    "Light Node L2",
-    "HTTP API",
-    "online",
-    1,
-    76,
-    3.85,
-    -69,
-    60,
-  ],
-  [
-    "FLD-LORA-014",
-    "north",
-    "north-1",
-    "North Field Station",
-    "Field Station X",
-    "MQTT",
-    "online",
-    1,
-    78,
-    3.84,
-    -73,
-    60,
-  ],
-  [
-    "FLD-RS485-019",
-    "north",
-    "north-1",
-    "Soil Probe Cluster",
-    "Soil Array M4",
-    "RS485 / Modbus",
-    "online",
-    2,
-    65,
-    3.79,
-    -75,
-    60,
-  ],
-  [
-    "ENV-SDI12-008",
-    "north",
-    "north-2",
-    "Weather Mast 02",
-    "Weather Station W2",
-    "SDI-12",
-    "online",
-    1,
-    86,
-    3.9,
-    -68,
-    30,
-  ],
-  [
-    "ENV-UART-011",
-    "north",
-    "north-2",
-    "Rain Gauge 11",
-    "Rain Gauge R1",
-    "UART",
-    "offline",
-    56,
-    undefined,
-    undefined,
-    undefined,
-    60,
-  ],
-  [
-    "WTR-MQTT-003",
-    "irrigation",
-    "irb-1",
-    "Reservoir Monitor",
-    "Water Node W1",
-    "MQTT",
-    "warning",
-    2,
-    34,
-    3.62,
-    -82,
-    60,
-  ],
-  [
-    "WTR-HTTP-006",
-    "irrigation",
-    "irb-1",
-    "Water Quality Station",
-    "Water Node Q2",
-    "HTTP API",
-    "online",
-    3,
-    81,
-    3.88,
-    -70,
-    60,
-  ],
-  [
-    "CTL-RS485-027",
-    "irrigation",
-    "irb-2",
-    "Irrigation Valve 07",
-    "Valve Gateway V3",
-    "RS485 / Modbus",
-    "offline",
-    38,
-    undefined,
-    undefined,
-    undefined,
-    60,
-  ],
-  [
-    "CTL-MQTT-029",
-    "irrigation",
-    "irb-2",
-    "Flow Meter 29",
-    "Flow Node F1",
-    "MQTT",
-    "online",
-    1,
-    73,
-    3.82,
-    -74,
-    30,
-  ],
-].map(
-  ([
-    id,
-    farmId,
-    zoneId,
-    name,
-    model,
-    protocol,
-    status,
-    mins,
-    battery,
-    voltage,
-    signal,
-    intervalSeconds,
-  ]) => ({
-    id: id as string,
-    farmId: farmId as string,
-    zoneId: zoneId as string,
-    name: name as string,
-    model: model as string,
-    protocol: protocol as string,
-    status: status as Device["status"],
-    lastSeen: ago(mins as number),
-    lastTelemetry: ago(mins as number),
-    firmware: status === "offline" ? undefined : "v2.8.4",
-    battery: battery as number | undefined,
-    voltage: voltage as number | undefined,
-    signal: signal as number | undefined,
-    intervalSeconds: intervalSeconds as number,
-    uptime: status === "offline" ? undefined : "18d 7h",
-    description: "Demo field monitoring device",
-    tags: ["demo"],
-    ...seedLocations[id as string],
-  }),
-);
-const specs: [string, string, string, number, number?, number?][] = [
-  ["Air temperature", "temperature", "°C", 29.4, 18, 34],
-  ["Air humidity", "humidity", "%", 76.2, 40, 85],
-  ["Soil moisture", "soil_moisture", "%", 42.8, 25, 65],
-  ["Soil temperature", "soil_temperature", "°C", 26.1, 15, 32],
-  ["Rainfall", "rainfall", "mm", 2.4],
-  ["Wind speed", "wind_speed", "km/h", 12.6],
-  ["Light intensity", "light", "lux", 18400],
-  ["Battery voltage", "battery", "V", 3.82, 3.5, 4.2],
-];
-export const initialSensors: Sensor[] = initialDevices.flatMap((d, di) => {
-  const indices =
-    di === 0
-      ? [0, 1, 3, 6, 7]
-      : di === 6
-        ? [0, 4, 5, 6, 7]
-        : di === 8
-          ? [2, 7, 3]
-          : di === 10
-            ? [2, 7]
-            : di % 2
-              ? [0, 1, 2, 7]
-              : [2, 3, 4, 7];
-  return indices.map((si, n) => {
-    const [name, type, unit, base, min, max] = specs[si];
-    const demoValue =
-      d.id === "WTR-MQTT-003" && type === "battery"
-        ? 3.62
-        : d.id === "AGR-RS485-003" && type === "soil_moisture"
-          ? 23.8
-          : Number(
-              (
-                base +
-                (di
-                  ? ((di % 4) - 1.5) *
-                    (si === 6 ? 700 : si === 0 ? 0.7 : si === 7 ? 0.04 : 1.2)
-                  : 0)
-              ).toFixed(si === 6 ? 0 : 2),
-            );
-    return {
-      id: `${d.id}-S${n + 1}`,
-      deviceId: d.id,
-      name,
-      type,
-      unit,
-      value: demoValue,
-      min,
-      max,
-      quality: d.status === "offline" ? "missing" : "valid",
-      timestamp: d.lastTelemetry,
-    };
-  });
-});
-export const initialAlerts: Alert[] = [
   {
-    id: "ALT-001",
-    deviceId: "CTL-RS485-027",
-    severity: "critical",
-    message: "Device disconnected",
-    triggeredAt: ago(38),
+    id: "MTI-G7X26ZVJPQ5G",
+    farmId: "pens",
+    zoneId: "pens-1",
+    name: "AWS Pens",
+    model: "G7X Weather Station",
+    protocol: "HTTP API",
+    status: "online" as const,
+    lastSeen: ago(42),
+    lastTelemetry: ago(42),
+    firmware: "v1.0.0",
+    battery: 95,
+    voltage: undefined,
+    signal: undefined,
+    intervalSeconds: 3600,
+    uptime: "30d 0h",
+    description: "Automatic Weather Station — Pens",
+    tags: ["aws", "weather"],
+    kind: "weather" as const,
+    latitude: -7.2756,
+    longitude: 112.7946,
   },
   {
-    id: "ALT-002",
-    deviceId: "WTR-MQTT-003",
-    sensorId: "WTR-MQTT-003-S2",
-    severity: "warning",
-    message: "Battery below configured threshold",
-    current: "3.62 V",
-    threshold: "3.70 V",
-    triggeredAt: ago(62),
-  },
-  {
-    id: "ALT-003",
-    deviceId: "AGR-RS485-003",
-    sensorId: "AGR-RS485-003-S1",
-    severity: "warning",
-    message: "Soil moisture outside configured range",
-    current: "23.8%",
-    threshold: "25–65%",
-    triggeredAt: ago(91),
-  },
-  {
-    id: "ALT-004",
-    deviceId: "ENV-UART-011",
-    severity: "critical",
-    message: "Telemetry delayed",
-    triggeredAt: ago(56),
-  },
-  {
-    id: "ALT-005",
-    deviceId: "ENV-SDI12-008",
-    severity: "information",
-    message: "Connection restored",
-    triggeredAt: ago(182),
-    acknowledgedAt: ago(170),
-    resolvedAt: ago(170),
+    id: "MTI-WQM-POND01",
+    farmId: "pens",
+    zoneId: "pens-2",
+    name: "WQM Pond 1",
+    model: "WQM-200 Water Quality Monitor",
+    protocol: "HTTP API",
+    status: "online" as const,
+    lastSeen: ago(15),
+    lastTelemetry: ago(15),
+    firmware: "v2.1.0",
+    battery: 82,
+    voltage: undefined,
+    signal: undefined,
+    intervalSeconds: 900,
+    uptime: "14d 8h",
+    description: "Water Quality Monitor — Pond 1",
+    tags: ["wqm", "water"],
+    kind: "water" as const,
+    latitude: -7.2762,
+    longitude: 112.7938,
   },
 ];
-export const initialTelemetry: Telemetry[] = initialSensors.flatMap((s, si) =>
-  Array.from({ length: 7 * 24 }, (_, i) => {
-    const ts = new Date(
-      Date.parse(DEMO_NOW) - (7 * 24 - 1 - i) * 3600000,
-    ).toISOString();
-    const wave =
-      Math.sin(i / 8 + si * 0.8) *
-      (s.type === "light"
-        ? 1100
-        : s.type === "temperature"
-          ? 2.3
-          : s.type === "battery"
-            ? 0.05
-            : 3.2);
-    return {
+
+export let initialSensors: Sensor[] = [
+  { id: "G7X2-arHum",  deviceId: "MTI-G7X26ZVJPQ5G", name: "Air Humidity",    type: "humidity",      unit: "%RH",  value: 45.26, min: 30,  max: 95,   quality: "valid", timestamp: ago(42) },
+  { id: "G7X2-arTem",  deviceId: "MTI-G7X26ZVJPQ5G", name: "Air Temperature", type: "temperature",   unit: "°C",   value: 34.20, min: 15,  max: 38,   quality: "valid", timestamp: ago(42) },
+  { id: "G7X2-rnFal",  deviceId: "MTI-G7X26ZVJPQ5G", name: "Rainfall",        type: "rainfall",      unit: "mm",   value: 0,                          quality: "valid", timestamp: ago(42) },
+  { id: "G7X2-arPre",  deviceId: "MTI-G7X26ZVJPQ5G", name: "Air Pressure",    type: "pressure",      unit: "hPa",  value: 1007.60, min: 900, max: 1100, quality: "valid", timestamp: ago(42) },
+  { id: "G7X2-batt",   deviceId: "MTI-G7X26ZVJPQ5G", name: "Battery",         type: "battery",       unit: "%",    value: 95,    min: 20,  max: 100,  quality: "valid", timestamp: ago(42) },
+  { id: "G7X2-winDir",  deviceId: "MTI-G7X26ZVJPQ5G", name: "Wind Direction",  type: "wind_direction", unit: "°",    value: 264,                        quality: "valid", timestamp: ago(42) },
+  { id: "G7X2-winSpe",  deviceId: "MTI-G7X26ZVJPQ5G", name: "Wind Speed",      type: "wind_speed",    unit: "m/s",  value: 1.59,          max: 20,   quality: "valid", timestamp: ago(42) },
+  { id: "G7X2-sig",    deviceId: "MTI-G7X26ZVJPQ5G", name: "Signal",          type: "signal",        unit: "",     value: 0,                          quality: "valid", timestamp: ago(42) },
+  { id: "WQM1-ph",     deviceId: "MTI-WQM-POND01", name: "PH",              type: "ph",            unit: "pH",   value: 7.42,  min: 6.5, max: 8.5, quality: "valid", timestamp: ago(15) },
+  { id: "WQM1-nh3",    deviceId: "MTI-WQM-POND01", name: "Ammonia (NH3-N)", type: "ammonia",       unit: "mg/L", value: 0.010, min: 0,   max: 0.5, quality: "valid", timestamp: ago(15) },
+  { id: "WQM1-do",     deviceId: "MTI-WQM-POND01", name: "Dissolved Oxygen",type: "do",            unit: "mg/L", value: 6.8,   min: 4,   max: 12,  quality: "valid", timestamp: ago(15) },
+  { id: "WQM1-temp",   deviceId: "MTI-WQM-POND01", name: "Water Temp",      type: "temperature",   unit: "°C",   value: 28.5,  min: 20,  max: 35,  quality: "valid", timestamp: ago(15) },
+  { id: "WQM1-tds",    deviceId: "MTI-WQM-POND01", name: "TDS",             type: "tds",           unit: "ppm",  value: 320,   min: 0,   max: 1000,quality: "valid", timestamp: ago(15) },
+  { id: "WQM1-turb",   deviceId: "MTI-WQM-POND01", name: "Turbidity",       type: "turbidity",     unit: "NTU",  value: 12.3,  min: 0,   max: 50,  quality: "valid", timestamp: ago(15) },
+  { id: "WQM1-batt",   deviceId: "MTI-WQM-POND01", name: "Battery",         type: "battery",       unit: "%",    value: 82,    min: 20,  max: 100, quality: "valid", timestamp: ago(15) },
+  { id: "WQM1-sig",    deviceId: "MTI-WQM-POND01", name: "Signal",          type: "signal",        unit: "",     value: 65,                         quality: "valid", timestamp: ago(15) },
+];
+
+// Real API data from the device — hourly readings on 2026-10-18
+const apiData: { timestamp: string; sensors: { id: string; value: number }[] }[] = [
+  { timestamp: "2026-10-18T00:00:00Z", sensors: [
+    { id: "G7X2-arHum", value: 48.90 }, { id: "G7X2-arTem", value: 34.58 }, { id: "G7X2-rnFal", value: 0 },
+    { id: "G7X2-arPre", value: 1010.20 }, { id: "G7X2-batt", value: 93 }, { id: "G7X2-winDir", value: 333 },
+    { id: "G7X2-winSpe", value: 0.22 }, { id: "G7X2-sig", value: 0 },
+  ]},
+  { timestamp: "2026-10-18T01:00:00Z", sensors: [
+    { id: "G7X2-arHum", value: 42.26 }, { id: "G7X2-arTem", value: 36.90 }, { id: "G7X2-rnFal", value: 0 },
+    { id: "G7X2-arPre", value: 1009.90 }, { id: "G7X2-batt", value: 99 }, { id: "G7X2-winDir", value: 315 },
+    { id: "G7X2-winSpe", value: 0.57 }, { id: "G7X2-sig", value: 31 },
+  ]},
+  { timestamp: "2026-10-18T02:00:00Z", sensors: [
+    { id: "G7X2-arHum", value: 44.48 }, { id: "G7X2-arTem", value: 35.52 }, { id: "G7X2-rnFal", value: 0 },
+    { id: "G7X2-arPre", value: 1009.40 }, { id: "G7X2-batt", value: 95 }, { id: "G7X2-winDir", value: 311 },
+    { id: "G7X2-winSpe", value: 1.19 }, { id: "G7X2-sig", value: 0 },
+  ]},
+  { timestamp: "2026-10-18T03:00:00Z", sensors: [
+    { id: "G7X2-arHum", value: 44.90 }, { id: "G7X2-arTem", value: 35.30 }, { id: "G7X2-rnFal", value: 0 },
+    { id: "G7X2-arPre", value: 1008.70 }, { id: "G7X2-batt", value: 100 }, { id: "G7X2-winDir", value: 270 },
+    { id: "G7X2-winSpe", value: 1.24 }, { id: "G7X2-sig", value: 0 },
+  ]},
+  { timestamp: "2026-10-18T04:00:00Z", sensors: [
+    { id: "G7X2-arHum", value: 45.26 }, { id: "G7X2-arTem", value: 34.20 }, { id: "G7X2-rnFal", value: 0 },
+    { id: "G7X2-arPre", value: 1007.60 }, { id: "G7X2-batt", value: 95 }, { id: "G7X2-winDir", value: 264 },
+    { id: "G7X2-winSpe", value: 1.59 }, { id: "G7X2-sig", value: 0 },
+  ]},
+  { timestamp: "2026-10-18T05:00:00Z", sensors: [
+    { id: "G7X2-arHum", value: 49.72 }, { id: "G7X2-arTem", value: 32.60 }, { id: "G7X2-rnFal", value: 0 },
+    { id: "G7X2-arPre", value: 1006.54 }, { id: "G7X2-batt", value: 97 }, { id: "G7X2-winDir", value: 301 },
+    { id: "G7X2-winSpe", value: 1.98 }, { id: "G7X2-sig", value: 0 },
+  ]},
+  { timestamp: "2026-10-18T06:00:00Z", sensors: [
+    { id: "G7X2-arHum", value: 50.10 }, { id: "G7X2-arTem", value: 32.66 }, { id: "G7X2-rnFal", value: 0 },
+    { id: "G7X2-arPre", value: 1005.30 }, { id: "G7X2-batt", value: 93 }, { id: "G7X2-winDir", value: 277 },
+    { id: "G7X2-winSpe", value: 1.96 }, { id: "G7X2-sig", value: 24 },
+  ]},
+];
+
+const wqmData: { timestamp: string; sensors: { id: string; value: number }[] }[] = [
+  { timestamp: "2026-10-18T00:00:00Z", sensors: [
+    { id: "WQM1-ph", value: 7.38 }, { id: "WQM1-nh3", value: 0.012 }, { id: "WQM1-do", value: 7.1 },
+    { id: "WQM1-temp", value: 27.8 }, { id: "WQM1-tds", value: 315 }, { id: "WQM1-turb", value: 11.8 },
+    { id: "WQM1-batt", value: 85 }, { id: "WQM1-sig", value: 62 },
+  ]},
+  { timestamp: "2026-10-18T01:00:00Z", sensors: [
+    { id: "WQM1-ph", value: 7.35 }, { id: "WQM1-nh3", value: 0.011 }, { id: "WQM1-do", value: 7.0 },
+    { id: "WQM1-temp", value: 27.6 }, { id: "WQM1-tds", value: 318 }, { id: "WQM1-turb", value: 12.0 },
+    { id: "WQM1-batt", value: 84 }, { id: "WQM1-sig", value: 60 },
+  ]},
+  { timestamp: "2026-10-18T02:00:00Z", sensors: [
+    { id: "WQM1-ph", value: 7.40 }, { id: "WQM1-nh3", value: 0.009 }, { id: "WQM1-do", value: 6.9 },
+    { id: "WQM1-temp", value: 27.9 }, { id: "WQM1-tds", value: 322 }, { id: "WQM1-turb", value: 12.5 },
+    { id: "WQM1-batt", value: 84 }, { id: "WQM1-sig", value: 63 },
+  ]},
+  { timestamp: "2026-10-18T03:00:00Z", sensors: [
+    { id: "WQM1-ph", value: 7.44 }, { id: "WQM1-nh3", value: 0.008 }, { id: "WQM1-do", value: 6.7 },
+    { id: "WQM1-temp", value: 28.1 }, { id: "WQM1-tds", value: 319 }, { id: "WQM1-turb", value: 11.9 },
+    { id: "WQM1-batt", value: 83 }, { id: "WQM1-sig", value: 64 },
+  ]},
+  { timestamp: "2026-10-18T04:00:00Z", sensors: [
+    { id: "WQM1-ph", value: 7.42 }, { id: "WQM1-nh3", value: 0.010 }, { id: "WQM1-do", value: 6.8 },
+    { id: "WQM1-temp", value: 28.5 }, { id: "WQM1-tds", value: 320 }, { id: "WQM1-turb", value: 12.3 },
+    { id: "WQM1-batt", value: 82 }, { id: "WQM1-sig", value: 65 },
+  ]},
+  { timestamp: "2026-10-18T05:00:00Z", sensors: [
+    { id: "WQM1-ph", value: 7.46 }, { id: "WQM1-nh3", value: 0.011 }, { id: "WQM1-do", value: 6.6 },
+    { id: "WQM1-temp", value: 28.8 }, { id: "WQM1-tds", value: 325 }, { id: "WQM1-turb", value: 13.0 },
+    { id: "WQM1-batt", value: 82 }, { id: "WQM1-sig", value: 61 },
+  ]},
+  { timestamp: "2026-10-18T06:00:00Z", sensors: [
+    { id: "WQM1-ph", value: 7.48 }, { id: "WQM1-nh3", value: 0.013 }, { id: "WQM1-do", value: 6.5 },
+    { id: "WQM1-temp", value: 29.0 }, { id: "WQM1-tds", value: 328 }, { id: "WQM1-turb", value: 13.4 },
+    { id: "WQM1-batt", value: 81 }, { id: "WQM1-sig", value: 58 },
+  ]},
+];
+
+export let initialTelemetry: Telemetry[] = [
+  ...apiData.flatMap((entry, i) =>
+    entry.sensors.map((s) => ({
       id: `${s.id}-${i}`,
-      deviceId: s.deviceId,
+      deviceId: "MTI-G7X26ZVJPQ5G",
       sensorId: s.id,
-      timestamp: ts,
-      value: Number((s.value + wave).toFixed(s.type === "light" ? 0 : 2)),
-      quality: i % 71 === 0 ? ("missing" as const) : ("valid" as const),
-    };
-  }),
-);
+      timestamp: entry.timestamp,
+      value: Number(s.value.toFixed(2)),
+      quality: "valid" as const,
+    })),
+  ),
+  ...wqmData.flatMap((entry, i) =>
+    entry.sensors.map((s) => ({
+      id: `${s.id}-${i}`,
+      deviceId: "MTI-WQM-POND01",
+      sensorId: s.id,
+      timestamp: entry.timestamp,
+      value: Number(s.value.toFixed(3)),
+      quality: "valid" as const,
+    })),
+  ),
+];
+
+type DataListener = () => void;
+const listeners = new Set<DataListener>();
+export function onDataUpdate(fn: DataListener) {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+export function updateLiveData(sensors: Sensor[], telemetry: Telemetry[], lastSeen?: string) {
+  const otherSensors = initialSensors.filter((s) => s.deviceId !== "MTI-G7X26ZVJPQ5G");
+  const otherTelemetry = initialTelemetry.filter((t) => t.deviceId !== "MTI-G7X26ZVJPQ5G");
+  initialSensors = [...sensors, ...otherSensors];
+  initialTelemetry = [...telemetry, ...otherTelemetry];
+  DEMO_NOW = new Date().toISOString();
+  if (lastSeen) {
+    const d = initialDevices.find((x) => x.id === "MTI-G7X26ZVJPQ5G");
+    if (d) {
+      d.lastSeen = lastSeen;
+      d.lastTelemetry = lastSeen;
+      d.status = "online";
+    }
+  }
+  listeners.forEach((fn) => fn());
+}
+
+export function updateSensor(id: string, patch: { name?: string; min?: number | null; max?: number | null; decimals?: number | null; unit?: string }) {
+  const s = initialSensors.find((x) => x.id === id);
+  if (!s) return;
+  if (patch.name !== undefined) s.name = patch.name;
+  if (patch.min !== undefined) s.min = patch.min ?? undefined;
+  if (patch.max !== undefined) s.max = patch.max ?? undefined;
+  if (patch.decimals !== undefined) s.decimals = patch.decimals ?? undefined;
+  if (patch.unit !== undefined) s.unit = patch.unit;
+  listeners.forEach((fn) => fn());
+}
+
+export const initialAlerts: Alert[] = [];
+
 export function farmName(id: string) {
   return farms.find((f) => f.id === id)?.name || id;
 }
