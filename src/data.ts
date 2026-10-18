@@ -1,4 +1,5 @@
 import type { Alert, Device, Farm, Sensor, Telemetry, Zone } from "./types";
+import { seedLocations } from "./deviceGeo";
 export const DEMO_NOW = "2026-10-18T04:42:00.000Z";
 export const farms: Farm[] = [
   {
@@ -264,6 +265,7 @@ export const initialDevices: Device[] = [
     uptime: status === "offline" ? undefined : "18d 7h",
     description: "Demo field monitoring device",
     tags: ["demo"],
+    ...seedLocations[id as string],
   }),
 );
 const specs: [string, string, string, number, number?, number?][] = [

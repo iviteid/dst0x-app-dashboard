@@ -32,6 +32,9 @@ export interface Device {
   uptime?: string;
   description: string;
   tags: string[];
+  kind?: "climate" | "weather" | "soil" | "light" | "water" | "control";
+  latitude?: number;
+  longitude?: number;
 }
 export interface Sensor {
   id: string;

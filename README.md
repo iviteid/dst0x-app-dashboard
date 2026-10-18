@@ -14,10 +14,12 @@ npm run dev
 ## What is implemented
 
 - Public routes: `/login`, `/signup`, `/forgot-password`, `/reset-password`.
-- Demo session routes: `/dashboard`, `/devices`, `/devices/:deviceId`, `/analytics`, `/historical-data`, `/alerts`, `/reports`, `/profile`, `/settings`.
+- Demo session routes: `/dashboard`, `/devices`, `/devices/:deviceId`, `/analytics`, `/historical-data`, `/alerts`, `/reports`, `/firmware-ota`, `/profile`, `/settings`.
 - Deterministic data for three farms, six zones, 12 devices, 47 sensor channels, seven days of hourly telemetry, and sample alerts.
 - Farm scoping, device search/filter/sort/pagination, device add/edit/delete with local confirmation, alert acknowledgment and resolution, chart range and sensor controls, and CSV/JSON exports.
 - Light, dark, and system themes with browser persistence. Demo changes are stored in browser local storage.
+- Overview contains a full-size interactive OpenStreetMap with device-type markers, status rings, search, layer styles, zoom controls, a legend, monitoring list, and device detail popups. The bundled coordinates are illustrative approximations around the three demo sites, not surveyed device locations. New demo devices can be given coordinates and a marker type.
+- Firmware OTA is a browser-local simulation: it hashes a selected firmware file, checks model, battery, status, and version, and can update the displayed demo firmware version with a local run history. It never uploads the file or contacts hardware. A real OTA integration requires signed packages, device acknowledgments, rollback, authorization, and audit storage.
 
 The demo login stores only a local session flag. Signup, password recovery, and production sign in explain that an authentication provider is unavailable. The demo form never stores a password or sends an email.
 

@@ -25,6 +25,7 @@ import {
   Download,
   FileBarChart,
   Filter,
+  CloudUpload,
   Grid2X2,
   History,
   Leaf,
@@ -59,6 +60,9 @@ import {
   zones,
 } from "./data";
 import { demoService } from "./service";
+import DeviceMap from "./DeviceMap";
+import FirmwareOta from "./FirmwareOta";
+import { deviceKind, devicePosition, kindLabels, zoneCenters } from "./deviceGeo";
 
 type Theme = "light" | "dark" | "system";
 type Notice = { text: string; kind?: "error" | "success" };
@@ -84,6 +88,7 @@ const iconMap = {
   "historical-data": History,
   alerts: Bell,
   reports: FileBarChart,
+  "firmware-ota": CloudUpload,
   profile: UserRound,
   settings: SettingsIcon,
 };
@@ -94,6 +99,7 @@ const nav: [string, string][] = [
   ["historical-data", "Historical Data"],
   ["alerts", "Alerts"],
   ["reports", "Reports"],
+  ["firmware-ota", "Firmware OTA"],
 ];
 const badge = (text: string) =>
   `badge ${/critical|offline|missing|error/i.test(text) ? "danger" : /warning|stale|suspect|low/i.test(text) ? "warning" : /information|recent/i.test(text) ? "info" : "success"}`;
@@ -786,7 +792,7 @@ function AppShell({
   );
 }
 
-function Dashboard({ devices, alerts, farm, go, notify, refresh }: PageProps) {
+function Dashboard({ devices, farm, go, notify, refresh }: PageProps) {
   const scoped = devices.filter((d) => farm === "all" || d.farmId === farm);
   const ids = new Set(scoped.map((d) => d.id));
   const sensors = initialSensors.filter((s) => ids.has(s.deviceId));
@@ -794,25 +800,6 @@ function Dashboard({ devices, alerts, farm, go, notify, refresh }: PageProps) {
   const availability = scopedTelemetry.length
     ? `${((scopedTelemetry.filter((t) => t.quality === "valid").length / scopedTelemetry.length) * 100).toFixed(1)}%`
     : "—";
-  const activeAlerts = alerts.filter(
-    (a) => ids.has(a.deviceId) && !a.resolvedAt,
-  );
-  const [sensorId, setSensorId] = useState("");
-  const [range, setRange] = useState("24H");
-  const current = sensors.find((s) => s.id === sensorId) || sensors[0];
-  const chartDevice = devices.find((d) => d.id === current?.deviceId);
-  const featured = [
-    "temperature",
-    "humidity",
-    "soil_moisture",
-    "soil_temperature",
-    "rainfall",
-    "wind_speed",
-    "light",
-    "battery",
-  ]
-    .map((type) => sensors.find((s) => s.type === type))
-    .filter((s): s is Sensor => !!s);
   return (
     <>
       <PageHead
@@ -821,260 +808,21 @@ function Dashboard({ devices, alerts, farm, go, notify, refresh }: PageProps) {
         actions={
           <>
             <span className="updated">Dataset: {formatTime(DEMO_NOW)}</span>
-            <Button
-              onClick={() => {
-                refresh();
-                notify("Demo dataset checked. Values remain deterministic.");
-              }}
-            >
+            <Button onClick={() => { refresh(); notify("Demo dataset checked. Values remain deterministic."); }}>
               <RefreshCw size={16} /> Refresh
             </Button>
           </>
         }
       />
       <div className="dashboard-kpis">
-        <Stat
-          label="Total devices"
-          value={scoped.length}
-          detail="Registered in scope"
-          Icon={DeviceTablet}
-          accent="featured"
-          onClick={() => go("/devices")}
-        />
-        <Stat
-          label="Online devices"
-          value={scoped.filter((d) => d.status === "online").length}
-          detail="Communicating"
-          Icon={Wifi}
-          onClick={() => go("/devices?status=online")}
-        />
-        <Stat
-          label="Offline devices"
-          value={scoped.filter((d) => d.status === "offline").length}
-          detail="Connectivity checks"
-          Icon={AlertTriangle}
-          accent="danger-tint"
-          onClick={() => go("/devices?status=offline")}
-        />
-        <Stat
-          label="With warnings"
-          value={
-            scoped.filter(
-              (d) => d.status === "warning" || d.status === "critical",
-            ).length
-          }
-          detail="Needs review"
-          Icon={Bell}
-          accent="warning-tint"
-          onClick={() => go("/devices?status=warning")}
-        />
-        <Stat
-          label="Sensor channels"
-          value={sensors.length}
-          detail="Configured channels"
-          Icon={Activity}
-          onClick={() => go("/analytics")}
-        />
-        <Stat
-          label="Data availability"
-          value={availability}
-          detail="Valid samples, last 7 days"
-          Icon={Database}
-          onClick={() => go("/historical-data")}
-        />
+        <Stat label="Total devices" value={scoped.length} detail="Registered in scope" Icon={DeviceTablet} accent="featured" onClick={() => go("/devices")} />
+        <Stat label="Online devices" value={scoped.filter((d) => d.status === "online").length} detail="Communicating" Icon={Wifi} onClick={() => go("/devices?status=online")} />
+        <Stat label="Offline devices" value={scoped.filter((d) => d.status === "offline").length} detail="Connectivity checks" Icon={AlertTriangle} accent="danger-tint" onClick={() => go("/devices?status=offline")} />
+        <Stat label="With warnings" value={scoped.filter((d) => d.status === "warning" || d.status === "critical").length} detail="Needs review" Icon={Bell} accent="warning-tint" onClick={() => go("/devices?status=warning")} />
+        <Stat label="Sensor channels" value={sensors.length} detail="Configured channels" Icon={Activity} onClick={() => go("/analytics")} />
+        <Stat label="Data availability" value={availability} detail="Valid samples, last 7 days" Icon={Database} onClick={() => go("/historical-data")} />
       </div>
-      <div className="dashboard-upper">
-        <Card className="padded">
-          <PanelHead
-            title="Farm condition"
-            detail="Operational summary from the selected demo scope"
-            action={
-              <Badge>
-                {activeAlerts.some((a) => a.severity === "critical")
-                  ? "Needs attention"
-                  : "Operational"}
-              </Badge>
-            }
-          />
-          <div className="condition-grid">
-            <div>
-              <span>Zones with soil moisture alerts</span>
-              <strong>
-                {
-                  activeAlerts.filter((a) =>
-                    a.message.toLowerCase().includes("soil"),
-                  ).length
-                }
-              </strong>
-            </div>
-            <div>
-              <span>Devices requiring attention</span>
-              <strong>
-                {scoped.filter((d) => d.status !== "online").length}
-              </strong>
-            </div>
-            <div>
-              <span>Latest rainfall</span>
-              <strong>
-                {sensors.find((s) => s.type === "rainfall")
-                  ? fmt(sensors.find((s) => s.type === "rainfall")!.value, "mm")
-                  : "Not available"}
-              </strong>
-            </div>
-            <div>
-              <span>Irrigation condition</span>
-              <strong>
-                {scoped.some(
-                  (d) => d.id.startsWith("CTL-") && d.status === "offline",
-                )
-                  ? "Review device"
-                  : "Monitoring"}
-              </strong>
-            </div>
-          </div>
-          <p className="hint">
-            Informational readings only. No irrigation commands are available in
-            demo mode.
-          </p>
-        </Card>
-        <Card className="padded">
-          <PanelHead
-            title="Recent alerts"
-            detail="Simulated events in this farm scope"
-            action={
-              <button className="text-action" onClick={() => go("/alerts")}>
-                View all →
-              </button>
-            }
-          />
-          <div className="alert-list">
-            {activeAlerts.slice(0, 4).map((a) => (
-              <button key={a.id} onClick={() => go("/alerts")}>
-                <span className={`alert-mark ${a.severity}`} />
-                <span>
-                  <b>{a.message}</b>
-                  <small>
-                    {devices.find((d) => d.id === a.deviceId)?.name} ·{" "}
-                    {timeShort(a.triggeredAt)}
-                  </small>
-                </span>
-                <Badge>{a.severity}</Badge>
-              </button>
-            ))}
-            {!activeAlerts.length && (
-              <Empty
-                title="No open alerts"
-                detail="The selected farm has no open sample events."
-              />
-            )}
-          </div>
-        </Card>
-      </div>
-      <div className="section-line">
-        <div>
-          <h2>Environmental readings</h2>
-          <p>
-            Latest simulated sensor measurements, with configured demo
-            thresholds
-          </p>
-        </div>
-        <button className="text-action" onClick={() => go("/analytics")}>
-          Explore analytics →
-        </button>
-      </div>
-      <div className="sensor-grid">
-        {featured.map((s, i) => {
-          const d = devices.find((x) => x.id === s.deviceId)!;
-          const range = thresholds(s);
-          const warning =
-            s.quality === "missing" ||
-            (range.min != null && s.value < range.min) ||
-            (range.max != null && s.value > range.max);
-          return (
-            <button
-              className="sensor-card"
-              key={s.id}
-              onClick={() =>
-                go(`/analytics?sensor=${encodeURIComponent(s.id)}`)
-              }
-            >
-              <div className="sensor-card-top">
-                <span>{s.name}</span>
-                <Badge>
-                  {s.quality === "missing"
-                    ? "Missing"
-                    : warning
-                      ? "Warning"
-                      : "Normal"}
-                </Badge>
-              </div>
-              <strong>
-                {s.quality === "missing" ? "—" : fmt(s.value, s.unit)}
-              </strong>
-              <Spark seed={i} />
-              <div className="sensor-card-foot">
-                <span>
-                  {d.name}
-                  <small>{zoneName(d.zoneId)}</small>
-                </span>
-                <span>{timeShort(s.timestamp)}</span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      <Card className="padded chart-card">
-        <PanelHead
-          title="Sensor trends"
-          detail="Single measurement unit per chart · gaps indicate missing samples"
-          action={
-            <div className="inline-controls">
-              <select
-                aria-label="Sensor for trend chart"
-                value={current?.id || ""}
-                onChange={(e) => setSensorId(e.target.value)}
-              >
-                {sensors.map((s) => (
-                  <option value={s.id} key={s.id}>
-                    {s.name} · {devices.find((d) => d.id === s.deviceId)?.name}
-                  </option>
-                ))}
-              </select>
-              <div className="segmented">
-                {["1H", "6H", "24H", "7D", "30D"].map((r) => (
-                  <button
-                    key={r}
-                    className={range === r ? "active" : ""}
-                    onClick={() => setRange(r)}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-          }
-        />
-        {current && chartDevice ? (
-          <TrendChart sensor={current} device={chartDevice} range={range} />
-        ) : (
-          <Empty
-            title="No telemetry"
-            detail="No sensor channels are configured for this scope."
-          />
-        )}
-      </Card>
-      <Card className="padded">
-        <PanelHead
-          title="Device status"
-          detail={`${scoped.length} devices in selected farm scope`}
-          action={
-            <button className="text-action" onClick={() => go("/devices")}>
-              Manage devices →
-            </button>
-          }
-        />
-        <DeviceTable rows={scoped.slice(0, 5)} go={go} alerts={alerts} />
-      </Card>
+      <DeviceMap devices={devices} farm={farm} go={go} />
     </>
   );
 }
@@ -1214,6 +962,8 @@ function DeviceForm({
       intervalSeconds: 60,
       description: "",
       tags: [],
+      kind: "climate",
+      ...zoneCenters[zones.find((z) => z.farmId === defaultFarm)!.id],
     },
   );
   const [error, setError] = useState("");
@@ -1224,6 +974,12 @@ function DeviceForm({
     e.preventDefault();
     if (!form.id.trim() || !form.name.trim() || !form.model.trim()) {
       setError("Device ID, name, and model are required.");
+      return;
+    }
+    const position = devicePosition(form);
+    if (!Number.isFinite(position.latitude) || !Number.isFinite(position.longitude) ||
+        position.latitude < -90 || position.latitude > 90 || position.longitude < -180 || position.longitude > 180) {
+      setError("Enter valid latitude and longitude for the device marker.");
       return;
     }
     if (
@@ -1238,6 +994,7 @@ function DeviceForm({
       id: form.id.trim(),
       name: form.name.trim(),
       model: form.model.trim(),
+      ...position,
       zoneId: availableZones.some((z) => z.id === form.zoneId)
         ? form.zoneId
         : availableZones[0].id,
@@ -1294,6 +1051,7 @@ function DeviceForm({
               ...form,
               farmId: e.target.value,
               zoneId: zones.find((z) => z.farmId === e.target.value)!.id,
+              ...zoneCenters[zones.find((z) => z.farmId === e.target.value)!.id],
             })
           }
         >
@@ -1308,7 +1066,7 @@ function DeviceForm({
         Zone
         <select
           value={form.zoneId}
-          onChange={(e) => change("zoneId", e.target.value)}
+          onChange={(e) => setForm({ ...form, zoneId: e.target.value, ...zoneCenters[e.target.value] })}
         >
           {availableZones.map((z) => (
             <option value={z.id} key={z.id}>
@@ -1316,6 +1074,20 @@ function DeviceForm({
             </option>
           ))}
         </select>
+      </label>
+      <label className="full">
+        Device type
+        <select value={deviceKind(form)} onChange={(e) => change("kind", e.target.value)}>
+          {Object.entries(kindLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+      </label>
+      <label>
+        Latitude · demo map
+        <input type="number" min="-90" max="90" step="0.000001" value={form.latitude ?? devicePosition(form).latitude} onChange={(e) => change("latitude", Number(e.target.value))} required />
+      </label>
+      <label>
+        Longitude · demo map
+        <input type="number" min="-180" max="180" step="0.000001" value={form.longitude ?? devicePosition(form).longitude} onChange={(e) => change("longitude", Number(e.target.value))} required />
       </label>
       <label className="full">
         Description
@@ -1597,6 +1369,7 @@ function DeviceDetail({
           <>
             <Badge>{d.status}</Badge>
             <Button onClick={() => setModal("edit")}>Edit metadata</Button>
+            <Button onClick={() => go("/firmware-ota")}>Firmware OTA</Button>
             <Button variant="ghost" onClick={() => setModal("delete")}>
               <MoreHorizontal size={18} />
             </Button>
@@ -3405,6 +3178,7 @@ export default function App() {
     else if (path === "/historical-data") page = <HistoryPage {...props} />;
     else if (path === "/alerts") page = <AlertsPage {...props} />;
     else if (path === "/reports") page = <Reports {...props} />;
+    else if (path === "/firmware-ota") page = <FirmwareOta devices={devices} farm={farm} refresh={refresh} />;
     else if (path === "/profile")
       page = (
         <Profile
