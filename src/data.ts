@@ -32,6 +32,25 @@ const ago = (minutes: number) =>
 
 export const initialDevices: Device[] = [
   {
+    id: "RSC-001",
+    farmId: "pens",
+    zoneId: "pens-1",
+    name: "RSC 001",
+    model: "Remote Sensor Controller",
+    protocol: "HTTPS",
+    status: "online" as const,
+    lastSeen: ago(1),
+    lastTelemetry: ago(1),
+    voltage: 3.3,
+    signal: -44,
+    intervalSeconds: 300,
+    description: "Remote garden sensor connected through Cloudflare Tunnel",
+    tags: ["rsc", "garden", "live"],
+    kind: "soil" as const,
+    latitude: -7.2756,
+    longitude: 112.7946,
+  },
+  {
     id: "MTI-G7X26ZVJPQ5G",
     farmId: "pens",
     zoneId: "pens-1",
@@ -203,17 +222,23 @@ export function onDataUpdate(fn: DataListener) {
   return () => { listeners.delete(fn); };
 }
 export function updateLiveData(sensors: Sensor[], telemetry: Telemetry[], lastSeen?: string) {
-  const otherSensors = initialSensors.filter((s) => s.deviceId !== "MTI-G7X26ZVJPQ5G");
-  const otherTelemetry = initialTelemetry.filter((t) => t.deviceId !== "MTI-G7X26ZVJPQ5G");
+  const deviceId = sensors[0]?.deviceId;
+  if (!deviceId) return;
+  const otherSensors = initialSensors.filter((s) => s.deviceId !== deviceId);
+  const otherTelemetry = initialTelemetry.filter((t) => t.deviceId !== deviceId);
   initialSensors = [...sensors, ...otherSensors];
   initialTelemetry = [...telemetry, ...otherTelemetry];
   DEMO_NOW = new Date().toISOString();
   if (lastSeen) {
-    const d = initialDevices.find((x) => x.id === "MTI-G7X26ZVJPQ5G");
+    const d = initialDevices.find((x) => x.id === deviceId);
     if (d) {
       d.lastSeen = lastSeen;
       d.lastTelemetry = lastSeen;
       d.status = "online";
+      const battery = sensors.find((sensor) => sensor.id === "RSC-batt");
+      const signal = sensors.find((sensor) => sensor.id === "RSC-sig");
+      if (battery) d.voltage = battery.value;
+      if (signal) d.signal = signal.value;
     }
   }
   listeners.forEach((fn) => fn());

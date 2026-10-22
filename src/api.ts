@@ -1,38 +1,97 @@
 import type { Sensor, Telemetry } from "./types";
 
 const API_URL =
-  "https://app.mertani.co.id/external/v1/devices/MTI-G7X26ZVJPQ5G/data";
-const AUTH =
-  "Basic cGVucy1ld3M6eFAyWHVLOWN6SmJwbURacHY3U0FOUFVON291QjFpNm0=";
+  import.meta.env.VITE_SENSOR_API_URL ||
+  "https://api.dst0x.cloud/v1/sensor-records";
+const DEVICE_ID = import.meta.env.VITE_SENSOR_DEVICE_ID || "RSC-001";
 
-const SENSOR_MAP: Record<string, { name: string; type: string; unit: string }> =
-  {
-    "G7X2-arHum": { name: "Air Humidity", type: "humidity", unit: "%RH" },
-    "G7X2-arTem": { name: "Air Temperature", type: "temperature", unit: "°C" },
-    "G7X2-rnFal": { name: "Rainfall", type: "rainfall", unit: "mm" },
-    "G7X2-arPre": { name: "Air Pressure", type: "pressure", unit: "hPa" },
-    "G7X2-batt": { name: "Battery", type: "battery", unit: "%" },
-    "G7X2-winDir": { name: "Wind Direction", type: "wind_direction", unit: "°" },
-    "G7X2-winSpe": { name: "Wind Speed", type: "wind_speed", unit: "m/s" },
-    "G7X2-sig": { name: "Signal", type: "signal", unit: "" },
-  };
-
-const SENSOR_LIMITS: Record<string, { min?: number; max?: number }> = {
-  "G7X2-arHum": { min: 30, max: 95 },
-  "G7X2-arTem": { min: 15, max: 38 },
-  "G7X2-arPre": { min: 900, max: 1100 },
-  "G7X2-batt": { min: 20, max: 100 },
-  "G7X2-winSpe": { max: 20 },
+type SensorRecord = {
+  id: number;
+  device_id: string;
+  device_time: number | null;
+  received_at: string;
+  [key: string]: string | number | null;
 };
 
-interface ApiEntry {
-  timestamp: string;
-  sensors: { id: string; value: number }[];
+type ApiResponse = {
+  success: boolean;
+  data: SensorRecord[];
+};
+
+const SENSOR_META: Record<
+  string,
+  { name: string; type: string; unit: string; min?: number; max?: number }
+> = {
+  "RSC-tem": {
+    name: "Air Temperature",
+    type: "temperature",
+    unit: "°C",
+    min: 10,
+    max: 50,
+  },
+  "RSC-hum": {
+    name: "Air Humidity",
+    type: "humidity",
+    unit: "%RH",
+    min: 0,
+    max: 100,
+  },
+  "RSC-pres": {
+    name: "Air Pressure",
+    type: "pressure",
+    unit: "hPa",
+    min: 850,
+    max: 1100,
+  },
+  "RSC-winspe": {
+    name: "Wind Speed",
+    type: "wind_speed",
+    unit: "m/s",
+    min: 0,
+    max: 60,
+  },
+  "RSC-windir": {
+    name: "Wind Direction",
+    type: "wind_direction",
+    unit: "°",
+    min: 0,
+    max: 360,
+  },
+  "RSC-batt": {
+    name: "Battery Voltage",
+    type: "battery_voltage",
+    unit: "V",
+    min: 3,
+    max: 4.2,
+  },
+  "RSC-sig": {
+    name: "Signal Strength",
+    type: "signal",
+    unit: "dBm",
+    min: -120,
+    max: 0,
+  },
+};
+
+const RESERVED_FIELDS = new Set([
+  "id",
+  "device_id",
+  "device_time",
+  "received_at",
+]);
+
+function titleFromId(id: string) {
+  return id
+    .replace(/^[^-]+-/, "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-interface ApiResponse {
-  message: string;
-  data: ApiEntry[];
+function timestampOf(record: SensorRecord) {
+  if (record.device_time && Number.isFinite(record.device_time)) {
+    return new Date(record.device_time * 1000).toISOString();
+  }
+  return `${record.received_at.replace(" ", "T")}Z`;
 }
 
 export async function fetchDeviceData(): Promise<{
@@ -41,52 +100,68 @@ export async function fetchDeviceData(): Promise<{
   lastSeen: string;
 } | null> {
   try {
-    const res = await fetch(API_URL, {
-      headers: { Authorization: AUTH },
+    const url = new URL(API_URL);
+    url.searchParams.set("device_id", DEVICE_ID);
+    url.searchParams.set("limit", "500");
+    url.searchParams.set("page", "1");
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Sensor API returned ${response.status}`);
+    }
+
+    const json: ApiResponse = await response.json();
+    if (!json.success || !json.data?.length) return null;
+
+    const records = [...json.data].sort(
+      (a, b) => Date.parse(timestampOf(a)) - Date.parse(timestampOf(b)),
+    );
+    const latest = records[records.length - 1];
+    const latestTimestamp = timestampOf(latest);
+    const sensorFields = Object.entries(latest).filter(
+      ([key, value]) => !RESERVED_FIELDS.has(key) && typeof value === "number",
+    );
+
+    const sensors: Sensor[] = sensorFields.map(([id, value]) => {
+      const meta = SENSOR_META[id] || {
+        name: titleFromId(id),
+        type: id.toLowerCase().replaceAll("-", "_"),
+        unit: "",
+      };
+      return {
+        id,
+        deviceId: DEVICE_ID,
+        name: meta.name,
+        type: meta.type,
+        unit: meta.unit,
+        value: Number(value),
+        min: meta.min,
+        max: meta.max,
+        quality: "valid",
+        timestamp: latestTimestamp,
+      };
     });
-    if (!res.ok) return null;
-    const json: ApiResponse = await res.json();
-    if (!json.data?.length) return null;
 
-    const entries = json.data.sort(
-      (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp),
-    );
-    const latest = entries[entries.length - 1];
-
-    const sensors: Sensor[] = latest.sensors
-      .filter((s) => SENSOR_MAP[s.id])
-      .map((s) => {
-        const meta = SENSOR_MAP[s.id];
-        const limits = SENSOR_LIMITS[s.id] || {};
-        return {
-          id: s.id,
-          deviceId: "MTI-G7X26ZVJPQ5G",
-          name: meta.name,
-          type: meta.type,
-          unit: meta.unit,
-          value: Number(s.value.toFixed(2)),
-          min: limits.min,
-          max: limits.max,
+    const telemetry: Telemetry[] = records.flatMap((record) => {
+      const timestamp = timestampOf(record);
+      return Object.entries(record)
+        .filter(
+          ([key, value]) =>
+            !RESERVED_FIELDS.has(key) && typeof value === "number",
+        )
+        .map(([sensorId, value]) => ({
+          id: `${record.id}-${sensorId}`,
+          deviceId: DEVICE_ID,
+          sensorId,
+          timestamp,
+          value: Number(value),
           quality: "valid" as const,
-          timestamp: latest.timestamp,
-        };
-      });
+        }));
+    });
 
-    const telemetry: Telemetry[] = entries.flatMap((entry, i) =>
-      entry.sensors
-        .filter((s) => SENSOR_MAP[s.id])
-        .map((s) => ({
-          id: `${s.id}-${i}`,
-          deviceId: "MTI-G7X26ZVJPQ5G",
-          sensorId: s.id,
-          timestamp: entry.timestamp,
-          value: Number(s.value.toFixed(2)),
-          quality: "valid" as const,
-        })),
-    );
-
-    return { sensors, telemetry, lastSeen: latest.timestamp };
-  } catch {
+    return { sensors, telemetry, lastSeen: latestTimestamp };
+  } catch (error) {
+    console.error("Unable to fetch DSTx sensor data", error);
     return null;
   }
 }

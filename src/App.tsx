@@ -77,7 +77,7 @@ import { DeviceEventsTab } from "./DeviceEvents";
 import { deviceKind, devicePosition, kindLabels, zoneCenters } from "./deviceGeo";
 import { supabase, signIn, signUp, signOut, getCurrentProfile, getUserPermissions, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "./supabase";
 
-const POLL_INTERVAL = 5 * 60 * 1000;
+const POLL_INTERVAL = 30 * 1000;
 
 function useLiveData() {
   const [, tick] = useState(0);
@@ -113,6 +113,14 @@ const read = <T,>(key: string, fallback: T): T => {
     return fallback;
   }
 };
+function loadDevices() {
+  const stored = read<Device[]>("agrivaid-devices", initialDevices);
+  const liveDevice = initialDevices.find((device) => device.id === "RSC-001");
+  if (liveDevice && !stored.some((device) => device.id === liveDevice.id)) {
+    return [liveDevice, ...stored];
+  }
+  return stored;
+}
 const iconMap = {
   dashboard: Grid2X2,
   devices: DeviceTablet,
@@ -3038,14 +3046,14 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [devices, setDevices] = useState<Device[]>(() =>
-    read("agrivaid-devices", initialDevices),
+    loadDevices(),
   );
   const [alerts, setAlerts] = useState<Alert[]>(() =>
     read("agrivaid-alerts", initialAlerts),
   );
   const [notice, setNotice] = useState<Notice | null>(null);
   const refresh = () => {
-    setDevices(read("agrivaid-devices", initialDevices));
+    setDevices(loadDevices());
     setAlerts(read("agrivaid-alerts", initialAlerts));
   };
   const notify = (text: string, kind: "error" | "success" = "success") => {
