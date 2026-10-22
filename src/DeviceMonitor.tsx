@@ -19,7 +19,14 @@ import {
   X,
 } from "lucide-react";
 import type { Device, Sensor } from "./types";
-import { DEMO_NOW, csv, downloadFile, initialTelemetry } from "./data";
+import {
+  DEMO_NOW,
+  csv,
+  downloadFile,
+  initialTelemetry,
+  updateLiveData,
+} from "./data";
+import { fetchDeviceData } from "./api";
 
 const JAKARTA_OFFSET = 7 * 3600000;
 const palette = [
@@ -69,6 +76,30 @@ const bucketStart = (ms: number, mode: Bucket) => {
   }
   return local.getTime() - JAKARTA_OFFSET;
 };
+
+function WindArrowDot({
+  cx,
+  cy,
+  value,
+  color,
+}: {
+  cx?: number;
+  cy?: number;
+  value?: number;
+  color: string;
+}) {
+  if (cx == null || cy == null || value == null) return null;
+  return (
+    <g transform={`translate(${cx} ${cy}) rotate(${value})`}>
+      <path
+        d="M 0 -8 L 5 5 L 0 2 L -5 5 Z"
+        fill={color}
+        stroke="var(--surface)"
+        strokeWidth={1}
+      />
+    </g>
+  );
+}
 
 export default function DeviceMonitor({
   device,
@@ -134,8 +165,29 @@ export default function DeviceMonitor({
   }, []);
   useEffect(() => {
     if (!realtime) return;
-    const timer = setInterval(() => setTick((t) => t + 1), 10000);
-    return () => clearInterval(timer);
+    let active = true;
+    let requestInFlight = false;
+
+    const sync = async () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const result = await fetchDeviceData();
+        if (active && result) {
+          updateLiveData(result.sensors, result.telemetry, result.lastSeen);
+          setTick((value) => value + 1);
+        }
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    void sync();
+    const timer = setInterval(sync, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [realtime]);
 
   const window_ = realtime ? { from: now - 7200000, to: now } : { from, to };
@@ -473,6 +525,7 @@ export default function DeviceMonitor({
                   <YAxis
                     key={unit}
                     yAxisId={unit}
+                    domain={unit === "°" ? [0, 360] : ["auto", "auto"]}
                     orientation={index === 0 ? yAxisSide : yAxisSide === "left" ? "right" : "left"}
                     tick={{ fontSize: 10, fill: "var(--muted)" }}
                     tickLine={false}
@@ -501,10 +554,16 @@ export default function DeviceMonitor({
                     yAxisId={s.unit}
                     dataKey={s.id}
                     name={s.name}
-                    stroke={colorOf(s.id)}
-                    strokeWidth={2}
+                    stroke={s.type === "wind_direction" ? "transparent" : colorOf(s.id)}
+                    strokeWidth={s.type === "wind_direction" ? 0 : 2}
                     type={curved ? "monotone" : "linear"}
-                    dot={dots ? { r: 2 } : false}
+                    dot={
+                      s.type === "wind_direction"
+                        ? <WindArrowDot color={colorOf(s.id)} />
+                        : dots
+                          ? { r: 2 }
+                          : false
+                    }
                     isAnimationActive={false}
                     connectNulls={false}
                   />
@@ -556,7 +615,7 @@ export default function DeviceMonitor({
             <tbody>
               {[...rows].reverse().map((row) => (
                 <tr key={String(row.at)}>
-                  <td>{label(Number(row.at), true)}</td>
+                  <td>{label(Number(row.at))}</td>
                   {chosen.map((s) => (
                     <td key={s.id}>{row[s.id] ?? "—"}</td>
                   ))}

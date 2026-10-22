@@ -68,7 +68,11 @@ import {
   zoneName,
   zones,
 } from "./data";
-import { fetchDeviceData } from "./api";
+import {
+  fetchDeviceData,
+  fetchDeviceInterval,
+  updateDeviceInterval,
+} from "./api";
 import { demoService } from "./service";
 import DeviceMap from "./DeviceMap";
 import FirmwareOta from "./FirmwareOta";
@@ -114,7 +118,13 @@ const read = <T,>(key: string, fallback: T): T => {
   }
 };
 function loadDevices() {
-  const stored = read<Device[]>("agrivaid-devices", initialDevices);
+  const retiredDeviceIds = new Set([
+    "MTI-G7X26ZVJPQ5G",
+    "MTI-WQM-POND01",
+  ]);
+  const stored = read<Device[]>("agrivaid-devices", initialDevices).filter(
+    (device) => !retiredDeviceIds.has(device.id),
+  );
   const liveDevice = initialDevices.find((device) => device.id === "RSC-001");
   if (liveDevice && !stored.some((device) => device.id === liveDevice.id)) {
     return [liveDevice, ...stored];
@@ -1168,7 +1178,7 @@ function DeviceForm({
 }: {
   device?: Device;
   defaultFarm?: string;
-  onSave: (d: Device) => void;
+  onSave: (d: Device) => void | Promise<void>;
   onCancel: () => void;
   devices: Device[];
 }) {
@@ -1191,13 +1201,49 @@ function DeviceForm({
     },
   );
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [loadingInterval, setLoadingInterval] = useState(!!device);
   const change = (key: keyof Device, value: unknown) =>
     setForm({ ...form, [key]: value });
   const availableZones = zones.filter((z) => z.farmId === form.farmId);
-  const submit = (e: React.FormEvent) => {
+
+  useEffect(() => {
+    if (!device) return;
+    let active = true;
+    fetchDeviceInterval(device.id)
+      .then((intervalSeconds) => {
+        if (active) {
+          setForm((current) => ({ ...current, intervalSeconds }));
+        }
+      })
+      .catch((cause) => {
+        if (active) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Unable to load reporting interval.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setLoadingInterval(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [device]);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.id.trim() || !form.name.trim() || !form.model.trim()) {
       setError("Device ID, name, and model are required.");
+      return;
+    }
+    if (
+      !Number.isFinite(form.intervalSeconds) ||
+      form.intervalSeconds < 0.1
+    ) {
+      setError("Reporting interval must be at least 0.1 seconds.");
       return;
     }
     const position = devicePosition(form);
@@ -1213,22 +1259,37 @@ function DeviceForm({
       setError("This device ID already exists.");
       return;
     }
-    onSave({
-      ...form,
-      id: form.id.trim(),
-      name: form.name.trim(),
-      model: form.model.trim(),
-      ...position,
-      zoneId: availableZones.some((z) => z.id === form.zoneId)
-        ? form.zoneId
-        : availableZones[0].id,
-    });
+    setSaving(true);
+    setError("");
+    try {
+      const id = form.id.trim();
+      const intervalSeconds = await updateDeviceInterval(
+        id,
+        form.intervalSeconds,
+      );
+      await onSave({
+        ...form,
+        id,
+        name: form.name.trim(),
+        model: form.model.trim(),
+        intervalSeconds,
+        ...position,
+        zoneId: availableZones.some((z) => z.id === form.zoneId)
+          ? form.zoneId
+          : availableZones[0].id,
+      });
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to save device interval.",
+      );
+      setSaving(false);
+    }
   };
   return (
     <form onSubmit={submit} className="form-grid">
       <p className="form-note full">
-        Changes are saved in this browser as demo state. No hardware
-        configuration is sent.
+        Device metadata is stored in this browser. Reporting interval is
+        synchronized with the DSTx backend.
       </p>
       <label>
         Device name
@@ -1265,6 +1326,18 @@ function DeviceForm({
             <option key={x}>{x}</option>
           ))}
         </select>
+      </label>
+      <label>
+        Reporting interval (seconds)
+        <input
+          type="number"
+          min="0.1"
+          step="0.1"
+          value={form.intervalSeconds}
+          onChange={(e) => change("intervalSeconds", Number(e.target.value))}
+          disabled={loadingInterval || saving}
+          required
+        />
       </label>
       <label>
         Farm
@@ -1322,9 +1395,9 @@ function DeviceForm({
       </label>
       {error && <p className="error-text full">{error}</p>}
       <div className="form-actions full">
-        <Button onClick={onCancel}>Cancel</Button>
-        <Button variant="primary" type="submit">
-          Save demo device
+        <Button onClick={onCancel} disabled={saving}>Cancel</Button>
+        <Button variant="primary" type="submit" disabled={saving || loadingInterval}>
+          {saving ? "Saving…" : "Save device"}
         </Button>
       </div>
     </form>

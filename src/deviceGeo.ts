@@ -5,12 +5,10 @@ type Position = { latitude: number; longitude: number };
 
 export const zoneCenters: Record<string, Position> = {
   "pens-1": { latitude: -7.2756, longitude: 112.7946 },
-  "pens-2": { latitude: -7.2762, longitude: 112.7938 },
 };
 
 export const seedLocations: Record<string, Position & { kind: Kind }> = {
-  "MTI-G7X26ZVJPQ5G": { latitude: -7.2756, longitude: 112.7946, kind: "weather" },
-  "MTI-WQM-POND01": { latitude: -7.2762, longitude: 112.7938, kind: "water" },
+  "RSC-001": { latitude: -7.2756, longitude: 112.7946, kind: "soil" },
 };
 
 export const kindLabels: Record<Kind, string> = {

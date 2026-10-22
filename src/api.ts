@@ -4,6 +4,10 @@ const API_URL =
   import.meta.env.VITE_SENSOR_API_URL ||
   "https://api.dst0x.cloud/v1/sensor-records";
 const DEVICE_ID = import.meta.env.VITE_SENSOR_DEVICE_ID || "RSC-001";
+const DEVICE_INTERVAL_URL = API_URL.replace(
+  /\/sensor-records\/?$/,
+  "/device-interval",
+);
 
 type SensorRecord = {
   id: number;
@@ -16,6 +20,13 @@ type SensorRecord = {
 type ApiResponse = {
   success: boolean;
   data: SensorRecord[];
+};
+
+type DeviceIntervalResponse = {
+  success: boolean;
+  device_id: string;
+  interval_ms: number;
+  interval_seconds: number;
 };
 
 const SENSOR_META: Record<
@@ -88,9 +99,9 @@ function titleFromId(id: string) {
 }
 
 function timestampOf(record: SensorRecord) {
-  if (record.device_time && Number.isFinite(record.device_time)) {
-    return new Date(record.device_time * 1000).toISOString();
-  }
+  // Use the server timestamp for ordering and display. Device clocks can be
+  // unset or drift far into the future, which would make an old record look
+  // like the newest one in the dashboard.
   return `${record.received_at.replace(" ", "T")}Z`;
 }
 
@@ -164,4 +175,36 @@ export async function fetchDeviceData(): Promise<{
     console.error("Unable to fetch DSTx sensor data", error);
     return null;
   }
+}
+
+export async function fetchDeviceInterval(deviceId: string): Promise<number> {
+  const url = new URL(DEVICE_INTERVAL_URL);
+  url.searchParams.set("device_id", deviceId);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Unable to load interval (${response.status})`);
+  }
+  const json: DeviceIntervalResponse = await response.json();
+  return json.interval_seconds ?? json.interval_ms / 1000;
+}
+
+export async function updateDeviceInterval(
+  deviceId: string,
+  intervalSeconds: number,
+): Promise<number> {
+  const response = await fetch(DEVICE_INTERVAL_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      device_id: deviceId,
+      interval_seconds: intervalSeconds,
+    }),
+  });
+  const json = (await response.json()) as DeviceIntervalResponse & {
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(json.error || `Unable to save interval (${response.status})`);
+  }
+  return json.interval_seconds ?? json.interval_ms / 1000;
 }
