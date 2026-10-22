@@ -1380,11 +1380,11 @@ function DeviceForm({
       </label>
       <label>
         Latitude · demo map
-        <input type="number" min="-90" max="90" step="0.000001" value={form.latitude ?? devicePosition(form).latitude} onChange={(e) => change("latitude", Number(e.target.value))} required />
+        <input type="number" min="-90" max="90" step="any" value={form.latitude ?? devicePosition(form).latitude} onChange={(e) => change("latitude", Number(e.target.value))} required />
       </label>
       <label>
         Longitude · demo map
-        <input type="number" min="-180" max="180" step="0.000001" value={form.longitude ?? devicePosition(form).longitude} onChange={(e) => change("longitude", Number(e.target.value))} required />
+        <input type="number" min="-180" max="180" step="any" value={form.longitude ?? devicePosition(form).longitude} onChange={(e) => change("longitude", Number(e.target.value))} required />
       </label>
       <label className="full">
         Description
