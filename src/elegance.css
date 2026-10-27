@@ -34,9 +34,10 @@
 
 body { background: var(--bg); line-height: 1.5; }
 :root[data-theme="dark"] body { background: radial-gradient(circle at 55% -20%, #1c3547 0, transparent 45%), var(--bg); }
-::selection { background: #b8e7f2; color: #123449; }
+::selection { background: #ffd7c8; color: #4a170c; }
 button, input, select { transition: background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease; }
 button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 50%, white); outline-offset: 3px; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
 input:not([type="checkbox"]):not([type="radio"]), select { border-color: var(--border); background: var(--surface); border-radius: 10px; }
 input:not([type="checkbox"]):not([type="radio"]):hover, select:hover { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); }
 

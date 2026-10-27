@@ -30,12 +30,12 @@ import { fetchDeviceData } from "./api";
 
 const JAKARTA_OFFSET = 7 * 3600000;
 const palette = [
-  "#2563eb",
+  "#F2491F",
   "#10b981",
   "#f59e0b",
   "#8b5cf6",
   "#ec4899",
-  "#0ea5e9",
+  "#d66032",
   "#ef4444",
   "#14b8a6",
 ];
