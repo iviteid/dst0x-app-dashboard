@@ -71,6 +71,7 @@ import {
 import {
   fetchDeviceData,
   fetchDeviceInterval,
+  saveSensorChannelConfiguration,
   updateDeviceInterval,
 } from "./api";
 import { demoService } from "./service";
@@ -1008,7 +1009,7 @@ function SensorCarousel({ devices, go }: { devices: Device[]; go: (p: string) =>
           {allSensors.map((s, i) => (
             <button type="button" key={s.id} className={`sc-card ${i === active ? "sc-active" : ""}`}
               aria-pressed={i === active}
-              aria-label={`${s.name}: ${s.value} ${s.unit}. ${i === active ? "Open device details" : "Select reading"}`}
+              aria-label={`${s.name}: ${s.quality === "missing" ? "no reading" : `${s.value} ${s.unit}`}. ${i === active ? "Open device details" : "Select reading"}`}
               onClick={() => { if (i !== active) goTo(i); else go(`/devices/${encodeURIComponent(s.deviceId)}`); }}
             >
               <div className="sc-card-inner">
@@ -1017,7 +1018,9 @@ function SensorCarousel({ devices, go }: { devices: Device[]; go: (p: string) =>
                   {s.quality === "missing" ? "—" : s.value.toLocaleString("en-US", { minimumFractionDigits: s.decimals ?? 0, maximumFractionDigits: s.decimals ?? 3 })}
                 </span>
                 <span className="sc-unit">{s.unit}</span>
-                <span className={`sc-range ${inRange(s) ? "" : "sc-range-warn"}`}>{inRange(s) ? "Normal range" : "Out of range"}</span>
+                <span className={`sc-range ${inRange(s) ? "" : "sc-range-warn"}`}>
+                  {s.quality === "missing" ? "No reading" : inRange(s) ? "Normal range" : "Out of range"}
+                </span>
                 <span className={`sc-id ${i === active ? "sc-id-active" : ""}`}>{s.id}</span>
               </div>
             </button>
@@ -1576,22 +1579,41 @@ function Devices({ devices, alerts, farm, go, notify, refresh }: PageProps) {
   );
 }
 
-function SensorEditModal({ sensor, onClose, notify }: { sensor: Sensor; onClose: () => void; notify: (m: string) => void }) {
+function SensorEditModal({ sensor, onClose, notify }: { sensor: Sensor; onClose: () => void; notify: (m: string, kind?: "error" | "success") => void }) {
   const [name, setName] = useState(sensor.name);
   const [unit, setUnit] = useState(sensor.unit);
   const [min, setMin] = useState(sensor.min != null ? String(sensor.min) : "");
   const [max, setMax] = useState(sensor.max != null ? String(sensor.max) : "");
   const [decimals, setDecimals] = useState(sensor.decimals != null ? String(sensor.decimals) : "");
-  const save = () => {
-    updateSensor(sensor.id, {
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    const patch = {
       name: name.trim() || undefined,
       unit: unit.trim(),
       min: min.trim() !== "" ? Number(min) : null,
       max: max.trim() !== "" ? Number(max) : null,
       decimals: decimals.trim() !== "" ? Number(decimals) : null,
-    });
-    notify("Sensor updated.");
-    onClose();
+    };
+    const next: Sensor = {
+      ...sensor,
+      name: patch.name ?? sensor.name,
+      unit: patch.unit,
+      min: patch.min ?? undefined,
+      max: patch.max ?? undefined,
+      decimals: patch.decimals ?? undefined,
+    };
+    setSaving(true);
+    try {
+      await saveSensorChannelConfiguration(next);
+      updateSensor(sensor.id, patch);
+      notify("Sensor configuration saved to the database.");
+      onClose();
+    } catch (error) {
+      console.error("Unable to save sensor configuration", error);
+      notify("Sensor configuration could not be saved to the database.", "error");
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -1639,7 +1661,9 @@ function SensorEditModal({ sensor, onClose, notify }: { sensor: Sensor; onClose:
         </div>
         <div className="modal-footer">
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save}>Save changes</Button>
+          <Button variant="primary" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
         </div>
       </div>
     </div>
@@ -1675,7 +1699,7 @@ function ChannelsTab({ sensors, notify }: { sensors: Sensor[]; notify: (m: strin
                       : `${thresholds(s).min}–${thresholds(s).max} ${s.unit}`}
                   </td>
                   <td><Badge>{s.quality}</Badge></td>
-                  <td>{timeShort(s.timestamp)}</td>
+                  <td>{s.quality === "missing" || !s.timestamp ? "—" : timeShort(s.timestamp)}</td>
                   <td><button className="ch-btn ch-btn-edit" onClick={() => setEditing(s)}><Pencil size={14} /></button></td>
                 </tr>
               ))}

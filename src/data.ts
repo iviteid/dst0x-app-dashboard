@@ -1,4 +1,5 @@
 import type { Alert, Device, Farm, Sensor, Telemetry, Zone } from "./types";
+import { DEFAULT_SENSOR_CHANNELS, missingSensor } from "./sensorConfig";
 
 export let DEMO_NOW = new Date().toISOString();
 
@@ -46,7 +47,9 @@ export const initialDevices: Device[] = [
   },
 ];
 
-export let initialSensors: Sensor[] = [];
+export let initialSensors: Sensor[] = DEFAULT_SENSOR_CHANNELS.map((channel) =>
+  missingSensor(channel),
+);
 export let initialTelemetry: Telemetry[] = [];
 
 type DataListener = () => void;
@@ -71,8 +74,8 @@ export function updateLiveData(sensors: Sensor[], telemetry: Telemetry[], lastSe
       d.status = "online";
       const battery = sensors.find((sensor) => sensor.id === "RSC-batt");
       const signal = sensors.find((sensor) => sensor.id === "RSC-sig");
-      if (battery) d.voltage = battery.value;
-      if (signal) d.signal = signal.value;
+      if (battery?.quality === "valid") d.voltage = battery.value;
+      if (signal?.quality === "valid") d.signal = signal.value;
     }
   }
   listeners.forEach((fn) => fn());

@@ -328,7 +328,7 @@ function detectDataIssues(devices: Device[], sensors: Sensor[]): DataIntegrityIs
     for (const s of devSensors) {
       const v = validateReading(s.type, s.value, s.quality);
       if (!v.isValid)
-        issues.push({ deviceId: d.id, deviceName: d.name, type: s.quality === "missing" ? "unresponsive" : "anomalous", severity: s.quality === "missing" ? "warning" : "information", message: `${s.name} on ${d.name} — ${v.issue}`, detail: v.issue!, detectedAt: s.timestamp });
+        issues.push({ deviceId: d.id, deviceName: d.name, type: s.quality === "missing" ? "unresponsive" : "anomalous", severity: s.quality === "missing" ? "warning" : "information", message: `${s.name} on ${d.name} — ${v.issue}`, detail: v.issue!, detectedAt: s.timestamp || d.lastSeen });
     }
   }
   return issues;
@@ -511,6 +511,7 @@ export function detectEvents(devices: Device[], sensors: Sensor[], telemetry: Te
 function makeSensorFaultEvent(eid: number, sensor: Sensor, device: Device, th: SensorThreshold, telemetry: Telemetry[], now: number, issue: string): SensorEvent {
   const history = telemetry.filter(t => t.sensorId === sensor.id).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const impact = analyzeImpact(sensor.type, sensor.value, th, 0, "sensor_fault");
+  const detectedAt = sensor.timestamp || device.lastSeen;
   return {
     id: `EVT-${String(eid).padStart(4, "0")}`,
     deviceId: device.id, sensorId: sensor.id, sensorType: sensor.type, sensorName: sensor.name,
@@ -519,8 +520,8 @@ function makeSensorFaultEvent(eid: number, sensor: Sensor, device: Device, th: S
     value: sensor.value, unit: th.unit,
     thresholdMin: th.min, thresholdMax: th.max,
     message: `${sensor.name} on ${device.name}: ${issue}`,
-    triggeredAt: sensor.timestamp,
-    durationMinutes: Math.round((now - Date.parse(sensor.timestamp)) / 60000),
+    triggeredAt: detectedAt,
+    durationMinutes: Math.round((now - Date.parse(detectedAt)) / 60000),
     impact,
     recommendations: recommendations(sensor.type, sensor.value, th, "sensor_fault"),
     telemetryWindow: history.slice(-24).map(t => ({ timestamp: t.timestamp, value: t.value })),

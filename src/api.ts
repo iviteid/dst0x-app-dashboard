@@ -1,4 +1,9 @@
 import type { Sensor, Telemetry } from "./types";
+import { supabase } from "./supabase";
+import {
+  DEFAULT_SENSOR_CHANNELS,
+  type SensorChannelDefinition,
+} from "./sensorConfig";
 
 const API_URL =
   import.meta.env.VITE_SENSOR_API_URL ||
@@ -29,60 +34,18 @@ type DeviceIntervalResponse = {
   interval_seconds: number;
 };
 
-const SENSOR_META: Record<
-  string,
-  { name: string; type: string; unit: string; min?: number; max?: number }
-> = {
-  "RSC-tem": {
-    name: "Air Temperature",
-    type: "temperature",
-    unit: "°C",
-    min: 10,
-    max: 50,
-  },
-  "RSC-hum": {
-    name: "Air Humidity",
-    type: "humidity",
-    unit: "%RH",
-    min: 0,
-    max: 100,
-  },
-  "RSC-pres": {
-    name: "Air Pressure",
-    type: "pressure",
-    unit: "hPa",
-    min: 850,
-    max: 1100,
-  },
-  "RSC-winspe": {
-    name: "Wind Speed",
-    type: "wind_speed",
-    unit: "m/s",
-    min: 0,
-    max: 60,
-  },
-  "RSC-windir": {
-    name: "Wind Direction",
-    type: "wind_direction",
-    unit: "°",
-    min: 0,
-    max: 360,
-  },
-  "RSC-batt": {
-    name: "Battery Voltage",
-    type: "battery_voltage",
-    unit: "V",
-    min: 3,
-    max: 4.2,
-  },
-  "RSC-sig": {
-    name: "Signal Strength",
-    type: "signal",
-    unit: "dBm",
-    min: -120,
-    max: 0,
-  },
+type SensorChannelRow = {
+  device_id: string;
+  sensor_id: string;
+  name: string;
+  sensor_type: string;
+  unit: string;
+  min_value: number | null;
+  max_value: number | null;
+  decimal_places: number | null;
 };
+
+let registryWarningShown = false;
 
 const RESERVED_FIELDS = new Set([
   "id",
@@ -98,6 +61,106 @@ function titleFromId(id: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function inferredChannel(id: string, deviceId: string): SensorChannelDefinition {
+  return {
+    id,
+    deviceId,
+    name: titleFromId(id),
+    type: id.toLowerCase().replaceAll("-", "_"),
+    unit: "",
+  };
+}
+
+function channelFromRow(row: SensorChannelRow): SensorChannelDefinition {
+  return {
+    id: row.sensor_id,
+    deviceId: row.device_id,
+    name: row.name,
+    type: row.sensor_type,
+    unit: row.unit,
+    min: row.min_value ?? undefined,
+    max: row.max_value ?? undefined,
+    decimals: row.decimal_places ?? undefined,
+  };
+}
+
+async function loadSensorChannels(deviceId: string) {
+  const defaults = DEFAULT_SENSOR_CHANNELS.filter(
+    (channel) => channel.deviceId === deviceId,
+  );
+  const { data, error } = await supabase
+    .from("sensor_channels")
+    .select(
+      "device_id, sensor_id, name, sensor_type, unit, min_value, max_value, decimal_places",
+    )
+    .eq("device_id", deviceId)
+    .eq("enabled", true)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (!registryWarningShown) {
+      console.warn(
+        "Sensor registry is unavailable; using bundled channel configuration.",
+        error.message,
+      );
+      registryWarningShown = true;
+    }
+    return defaults;
+  }
+
+  const channels = new Map(defaults.map((channel) => [channel.id, channel]));
+  for (const row of (data ?? []) as SensorChannelRow[]) {
+    const channel = channelFromRow(row);
+    channels.set(channel.id, channel);
+  }
+  return [...channels.values()];
+}
+
+async function registerDiscoveredChannels(
+  channels: SensorChannelDefinition[],
+) {
+  if (!channels.length) return;
+  const rows = channels.map((channel) => ({
+    device_id: channel.deviceId,
+    sensor_id: channel.id,
+    name: channel.name,
+    sensor_type: channel.type,
+    unit: channel.unit,
+    min_value: channel.min ?? null,
+    max_value: channel.max ?? null,
+    decimal_places: channel.decimals ?? null,
+  }));
+  const { error } = await supabase
+    .from("sensor_channels")
+    .upsert(rows, {
+      onConflict: "device_id,sensor_id",
+      ignoreDuplicates: true,
+    });
+  if (error && !registryWarningShown) {
+    console.warn("Unable to register discovered sensor channels.", error.message);
+    registryWarningShown = true;
+  }
+}
+
+export async function saveSensorChannelConfiguration(sensor: Sensor) {
+  const { error } = await supabase.from("sensor_channels").upsert(
+    {
+      device_id: sensor.deviceId,
+      sensor_id: sensor.id,
+      name: sensor.name,
+      sensor_type: sensor.type,
+      unit: sensor.unit,
+      min_value: sensor.min ?? null,
+      max_value: sensor.max ?? null,
+      decimal_places: sensor.decimals ?? null,
+      enabled: true,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "device_id,sensor_id" },
+  );
+  if (error) throw error;
+}
+
 function timestampOf(record: SensorRecord) {
   // Use the server timestamp for ordering and display. Device clocks can be
   // unset or drift far into the future, which would make an old record look
@@ -108,7 +171,7 @@ function timestampOf(record: SensorRecord) {
 export async function fetchDeviceData(): Promise<{
   sensors: Sensor[];
   telemetry: Telemetry[];
-  lastSeen: string;
+  lastSeen?: string;
 } | null> {
   try {
     const url = new URL(API_URL);
@@ -122,33 +185,45 @@ export async function fetchDeviceData(): Promise<{
     }
 
     const json: ApiResponse = await response.json();
-    if (!json.success || !json.data?.length) return null;
+    if (!json.success) return null;
 
-    const records = [...json.data].sort(
+    const records = [...(json.data ?? [])].sort(
       (a, b) => Date.parse(timestampOf(a)) - Date.parse(timestampOf(b)),
     );
-    const latest = records[records.length - 1];
-    const latestTimestamp = timestampOf(latest);
-    const sensorFields = Object.entries(latest).filter(
-      ([key, value]) => !RESERVED_FIELDS.has(key) && typeof value === "number",
+    const latest = records.at(-1);
+    const latestTimestamp = latest ? timestampOf(latest) : "";
+    const configured = await loadSensorChannels(DEVICE_ID);
+    const channels = new Map(configured.map((channel) => [channel.id, channel]));
+    const discovered: SensorChannelDefinition[] = [];
+
+    for (const record of records) {
+      for (const [id, value] of Object.entries(record)) {
+        if (RESERVED_FIELDS.has(id) || typeof value !== "number" || channels.has(id)) {
+          continue;
+        }
+        const channel = inferredChannel(id, DEVICE_ID);
+        channels.set(id, channel);
+        discovered.push(channel);
+      }
+    }
+    void registerDiscoveredChannels(discovered);
+
+    const latestValues = new Map(
+      latest
+        ? Object.entries(latest).filter(
+            ([id, value]) =>
+              !RESERVED_FIELDS.has(id) && typeof value === "number",
+          )
+        : [],
     );
 
-    const sensors: Sensor[] = sensorFields.map(([id, value]) => {
-      const meta = SENSOR_META[id] || {
-        name: titleFromId(id),
-        type: id.toLowerCase().replaceAll("-", "_"),
-        unit: "",
-      };
+    const sensors: Sensor[] = [...channels.values()].map((channel) => {
+      const value = latestValues.get(channel.id);
+      const hasReading = typeof value === "number";
       return {
-        id,
-        deviceId: DEVICE_ID,
-        name: meta.name,
-        type: meta.type,
-        unit: meta.unit,
-        value: Number(value),
-        min: meta.min,
-        max: meta.max,
-        quality: "valid",
+        ...channel,
+        value: hasReading ? Number(value) : 0,
+        quality: hasReading ? "valid" : "missing",
         timestamp: latestTimestamp,
       };
     });
@@ -170,7 +245,11 @@ export async function fetchDeviceData(): Promise<{
         }));
     });
 
-    return { sensors, telemetry, lastSeen: latestTimestamp };
+    return {
+      sensors,
+      telemetry,
+      lastSeen: latestTimestamp || undefined,
+    };
   } catch (error) {
     console.error("Unable to fetch DSTx sensor data", error);
     return null;
