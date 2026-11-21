@@ -79,7 +79,6 @@ import { demoService } from "../services/dataService";
 import DeviceMap from "../features/dashboard/components/DeviceMap";
 import FirmwareOta from "../features/firmware/components/FirmwareOta";
 import DeviceMonitor from "../features/devices/components/DeviceMonitor";
-import { DeviceEventsTab } from "../features/devices/components/DeviceEvents";
 import { deviceKind, devicePosition, kindLabels } from "../features/devices/lib/deviceGeo";
 import { supabase, signIn, signUp, signOut, createRole, deleteRole, getCompanyName, getCurrentProfile, getUserPermissions, listRoles, updateRole, type AppRole, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
 
@@ -824,15 +823,6 @@ function AppShell({
             </button>
           )}
           <button
-            className={path === "/settings" ? "active" : ""}
-            onClick={() => {
-              go("/settings");
-              setMobile(false);
-            }}
-          >
-            <SettingsIcon size={18} /> Settings
-          </button>
-          <button
             className={path === "/profile" ? "active" : ""}
             onClick={() => {
               go("/profile");
@@ -1203,7 +1193,7 @@ function DeviceForm({
       name: "",
       model: "",
       protocol: "MQTT",
-      status: "online",
+      status: "offline",
       lastSeen: DEMO_NOW,
       lastTelemetry: DEMO_NOW,
       intervalSeconds: 60,
@@ -1778,7 +1768,7 @@ function DeviceDetail({
         }
       />
       <div className="tabs">
-        {["overview", "channels", "events", "configuration"].map((t) => (
+        {["overview", "channels"].map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -1811,37 +1801,6 @@ function DeviceDetail({
             }
           />
           <TelemetryTable rows={rows} />
-        </Card>
-      )}
-      {tab === "events" && (
-        <DeviceEventsTab device={d} sensors={sensors} notify={notify} />
-      )}
-      {tab === "configuration" && (
-        <Card className="padded">
-          <PanelHead
-            title="Device configuration"
-            detail="Metadata in the demo state"
-          />
-          <div className="key-values">
-            {[
-              ["Farm", farmName(d.farmId)],
-              ["Zone", zoneName(d.zoneId)],
-              ["Model", d.model],
-              ["Protocol", d.protocol],
-              ["Interval", `${d.intervalSeconds} sec`],
-              ["Tags", d.tags.join(", ") || "None"],
-            ].map(([k, v]) => (
-              <div key={k}>
-                <span>{k}</span>
-                <b>{v}</b>
-              </div>
-            ))}
-          </div>
-          <p className="hint">
-            Device side commands are unavailable without a connected backend
-            command channel.
-          </p>
-          <Button onClick={() => setModal("edit")}>Edit metadata</Button>
         </Card>
       )}
       {modal === "edit" && (
@@ -2228,10 +2187,6 @@ function UserManagement({
   const [editUser, setEditUser] = useState<UserProfile | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [newRoleOpen, setNewRoleOpen] = useState(false);
-  const [companyOpen, setCompanyOpen] = useState(false);
-  const [companyName, setCompanyName] = useState("");
-  const [companySlug, setCompanySlug] = useState("");
-  const [companySaving, setCompanySaving] = useState(false);
 
   const [matrix, setMatrix] = useState<Record<string, Set<string>>>(() => {
     const m: Record<string, Set<string>> = {};
@@ -2351,25 +2306,6 @@ function UserManagement({
     setDeleteRoleConfirm(r);
   };
 
-  const saveCompany = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const slug = companySlug.trim().toLowerCase();
-    if (!companyName.trim() || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
-      notify("Enter a company name and a lowercase slug using letters, numbers, or hyphens.", "error");
-      return;
-    }
-    setCompanySaving(true);
-    try {
-      await createCompany(companyName.trim(), slug);
-      notify("Company created and assigned to this administrator.");
-      setCompanyOpen(false);
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Could not create company.", "error");
-    } finally {
-      setCompanySaving(false);
-    }
-  };
-
   const confirmDeleteRole = () => {
     if (!deleteRoleConfirm) return;
     void deleteRole(deleteRoleConfirm).then(() => {
@@ -2383,7 +2319,7 @@ function UserManagement({
 
   return (
     <>
-      <PageHead title="Peran Pengguna" description="Kelola perusahaan, peran, pengguna, dan hak akses." actions={<Button variant="primary" onClick={() => setCompanyOpen(true)}><Plus size={16} /> Buat perusahaan</Button>} />
+      <PageHead title="Peran Pengguna" description="Kelola peran, pengguna, dan hak akses." />
       <div className="um-layout">
         <aside className="um-sidebar" onClick={() => { if (roleMenuOpen) setRoleMenuOpen(null); }}>
           <button className={`um-role-item ${selectedRole === "admin" ? "active" : ""}`} onClick={() => setSelectedRole("admin")}>
@@ -2438,6 +2374,7 @@ function UserManagement({
                   <Search size={16} />
                   <input placeholder="Nama User" value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
+                <Button variant="primary" onClick={() => setAddOpen(true)}><Plus size={16} /> Tambah Pengguna</Button>
               </div>
               <div className="table-wrap">
                 <table className="um-table">
@@ -2555,16 +2492,6 @@ function UserManagement({
       {newRoleOpen && (
         <Modal title="Buat Role Baru" onClose={() => setNewRoleOpen(false)}>
           <NewRoleForm onClose={() => setNewRoleOpen(false)} notify={notify} onSaved={loadRoles} />
-        </Modal>
-      )}
-      {companyOpen && (
-        <Modal title="Buat perusahaan" onClose={() => setCompanyOpen(false)}>
-          <form onSubmit={saveCompany} className="form-grid">
-            <p className="form-note full">Perusahaan menjadi batas data untuk device, sensor ID, user, dan telemetry.</p>
-            <label className="full">Nama perusahaan<input value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="PT DSTx Indonesia" required /></label>
-            <label className="full">Slug perusahaan<input value={companySlug} onChange={(event) => setCompanySlug(event.target.value.toLowerCase())} placeholder="dstx-indonesia" required /></label>
-            <div className="form-actions full"><Button onClick={() => setCompanyOpen(false)}>Batal</Button><Button type="submit" variant="primary" disabled={companySaving}>{companySaving ? "Membuat…" : "Buat perusahaan"}</Button></div>
-          </form>
         </Modal>
       )}
       {deleteConfirm && (
@@ -2707,7 +2634,13 @@ function UserAddModal({ onClose, notify, onSave, hiddenRoles = [] }: { onClose: 
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("asisten");
+  const [companyId, setCompanyId] = useState("");
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void listCompanies().then(setCompanies).catch(() => setCompanies([]));
+  }, []);
 
   const save = async () => {
     if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) { notify("Masukkan email yang valid.", "error"); return; }
@@ -2715,7 +2648,10 @@ function UserAddModal({ onClose, notify, onSave, hiddenRoles = [] }: { onClose: 
     if (password.length < 8) { notify("Password minimal 8 karakter.", "error"); return; }
     setBusy(true);
     try {
-      await signUp(email, password, name.trim(), role);
+      const auth = await signUp(email, password, name.trim(), role);
+      if (companyId && auth.user?.id) {
+        await supabase.from("user_profiles").update({ company_id: companyId }).eq("id", auth.user.id);
+      }
       notify(`${name.trim()} berhasil dibuat.`);
       onSave();
       onClose();
@@ -2735,6 +2671,12 @@ function UserAddModal({ onClose, notify, onSave, hiddenRoles = [] }: { onClose: 
         <label className="modal-label">Role
           <select className="ch-edit-input" value={role} onChange={e => setRole(e.target.value as Role)}>
             {(Object.entries(ROLE_LABELS) as [Role, string][]).filter(([v]) => !hiddenRoles.includes(v as Role)).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        <label className="modal-label">Perusahaan
+          <select className="ch-edit-input" value={companyId} onChange={e => setCompanyId(e.target.value)}>
+            <option value="">{companies.length ? "Pilih perusahaan (opsional)" : "Tidak ada perusahaan"}</option>
+            {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
       </div>
