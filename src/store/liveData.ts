@@ -60,7 +60,15 @@ export function updateLiveData(sensors: Sensor[], telemetry: Telemetry[], lastSe
 }
 
 export function replaceRegisteredSensors(sensors: Sensor[]) {
-  initialSensors = sensors;
+  // Preserve live values from previous fetch to avoid flash of "No reading"
+  const prevMap = new Map(initialSensors.map((s) => [s.id, s]));
+  initialSensors = sensors.map((s) => {
+    const prev = prevMap.get(s.id);
+    if (prev && prev.quality === "valid") {
+      return { ...s, value: prev.value, quality: prev.quality, timestamp: prev.timestamp };
+    }
+    return s;
+  });
   listeners.forEach((fn) => fn());
 }
 

@@ -114,10 +114,8 @@ export async function saveSensorChannelConfiguration(sensor: Sensor, targetCompa
 }
 
 function timestampOf(record: SensorRecord) {
-  // Use the server timestamp for ordering and display. Device clocks can be
-  // unset or drift far into the future, which would make an old record look
-  // like the newest one in the dashboard.
-  return `${record.received_at.replace(" ", "T")}Z`;
+  const ts = record.received_at.replace(" ", "T");
+  return ts.endsWith("Z") ? ts : `${ts}Z`;
 }
 
 export async function fetchDeviceData(deviceId: string): Promise<{
