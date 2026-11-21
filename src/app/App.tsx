@@ -1060,12 +1060,7 @@ function Dashboard({ devices, farm, go, notify, refresh, updatedSensorIds }: Pag
         title="Overview"
         description="A clear, welcoming view of your sensors and connected devices."
         actions={
-          <>
-            <span className="updated">Dataset: {formatTime(DEMO_NOW)}</span>
-            <Button onClick={() => { refresh(); notify("Data refreshed."); }}>
-              <RefreshCw size={16} /> Refresh
-            </Button>
-          </>
+          <span className="updated">Dataset: {formatTime(DEMO_NOW)}</span>
         }
       />
       <div className="overview-section-heading">
