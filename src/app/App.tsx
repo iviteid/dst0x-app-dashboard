@@ -80,7 +80,7 @@ import DeviceMap from "../features/dashboard/components/DeviceMap";
 import FirmwareOta from "../features/firmware/components/FirmwareOta";
 import DeviceMonitor from "../features/devices/components/DeviceMonitor";
 import { DeviceEventsTab } from "../features/devices/components/DeviceEvents";
-import { deviceKind, devicePosition, kindLabels, zoneCenters } from "../features/devices/lib/deviceGeo";
+import { deviceKind, devicePosition, kindLabels } from "../features/devices/lib/deviceGeo";
 import { supabase, signIn, signUp, signOut, getCompanyName, getCurrentProfile, getUserPermissions, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
 
 const POLL_INTERVAL = 30 * 1000;
@@ -165,8 +165,7 @@ const sinceNow = (iso: string) => {
 const alertIcon = { critical: AlertTriangle, warning: Activity, information: Info };
 const isPublic = (p: string) =>
   ["/login", "/signup", "/forgot-password", "/reset-password"].includes(p);
-const deviceFarm = (d: Device) =>
-  `${farmName(d.farmId)} · ${zoneName(d.zoneId)}`;
+const deviceFarm = (d: Device) => d.companyId ?? "No company assigned";
 const timeShort = (s: string) => formatTime(s).replace(", 2026", "");
 const thresholds = (sensor: Sensor) =>
   sensor.type === "soil_moisture"
@@ -1097,7 +1096,7 @@ function DeviceTable({
           <tr>
             <th>Device</th>
             <th>Model</th>
-            <th>Farm / zone</th>
+            <th>Company</th>
             <th>Status</th>
             <th>Sensors</th>
             <th>Last seen</th>
@@ -1117,7 +1116,7 @@ function DeviceTable({
                 <small>{d.id}</small>
               </td>
               <td>{d.model}</td>
-              <td>{deviceFarm(d)}</td>
+              <td>{d.companyId ?? "—"}</td>
               <td>
                 <Badge>{d.status}</Badge>
               </td>
@@ -1187,13 +1186,11 @@ function DeviceTable({
 
 function DeviceForm({
   device,
-  defaultFarm = farms[0].id,
   onSave,
   onCancel,
   devices,
 }: {
   device?: Device;
-  defaultFarm?: string;
   onSave: (d: Device) => void | Promise<void>;
   onCancel: () => void;
   devices: Device[];
@@ -1201,8 +1198,8 @@ function DeviceForm({
   const [form, setForm] = useState<Device>(
     device || {
       id: "",
-      farmId: defaultFarm,
-      zoneId: zones.find((z) => z.farmId === defaultFarm)!.id,
+      farmId: "company",
+      zoneId: "default",
       name: "",
       model: "",
       protocol: "MQTT",
@@ -1213,7 +1210,8 @@ function DeviceForm({
       description: "",
       tags: [],
       kind: "climate",
-      ...zoneCenters[zones.find((z) => z.farmId === defaultFarm)!.id],
+      latitude: -7.2756,
+      longitude: 112.7946,
     },
   );
   const [error, setError] = useState("");
@@ -1222,7 +1220,6 @@ function DeviceForm({
   const [companies, setCompanies] = useState<Company[]>([]);
   const change = (key: keyof Device, value: unknown) =>
     setForm({ ...form, [key]: value });
-  const availableZones = zones.filter((z) => z.farmId === form.farmId);
 
   useEffect(() => {
     void listCompanies().then(setCompanies).catch(() => setCompanies([]));
@@ -1232,6 +1229,10 @@ function DeviceForm({
     e.preventDefault();
     if (!form.id.trim() || !form.name.trim() || !form.model.trim()) {
       setError("Device ID, name, and model are required.");
+      return;
+    }
+    if (!form.companyId) {
+      setError("Select the company that owns this device.");
       return;
     }
     if (
@@ -1265,9 +1266,6 @@ function DeviceForm({
         model: form.model.trim(),
         intervalSeconds: form.intervalSeconds,
         ...position,
-        zoneId: availableZones.some((z) => z.id === form.zoneId)
-          ? form.zoneId
-          : availableZones[0].id,
       });
     } catch (cause) {
       setError(
@@ -1299,15 +1297,6 @@ function DeviceForm({
           disabled={!!device}
         />
       </label>
-      {companies.length > 0 && (
-        <label>
-          Company
-          <select value={form.companyId ?? ""} onChange={(event) => change("companyId", event.target.value)} required>
-            <option value="" disabled>Select company</option>
-            {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
-          </select>
-        </label>
-      )}
       <label>
         Model
         <input
@@ -1340,36 +1329,10 @@ function DeviceForm({
         />
       </label>
       <label>
-        Farm
-        <select
-          value={form.farmId}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              farmId: e.target.value,
-              zoneId: zones.find((z) => z.farmId === e.target.value)!.id,
-              ...zoneCenters[zones.find((z) => z.farmId === e.target.value)!.id],
-            })
-          }
-        >
-          {farms.map((f) => (
-            <option value={f.id} key={f.id}>
-              {f.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Zone
-        <select
-          value={form.zoneId}
-          onChange={(e) => setForm({ ...form, zoneId: e.target.value, ...zoneCenters[e.target.value] })}
-        >
-          {availableZones.map((z) => (
-            <option value={z.id} key={z.id}>
-              {z.name}
-            </option>
-          ))}
+        Company
+        <select value={form.companyId ?? ""} onChange={(event) => change("companyId", event.target.value)} disabled={saving || !companies.length} required>
+          <option value="">{companies.length ? "Select company" : "No company available"}</option>
+          {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
         </select>
       </label>
       <label className="full">
@@ -1539,7 +1502,6 @@ function Devices({ devices, alerts, farm, go, notify, refresh }: PageProps) {
         <Modal title="Add device" onClose={() => setModal(null)}>
           <DeviceForm
             devices={devices}
-            defaultFarm={farm === "all" ? farms[0].id : farm}
             onSave={save}
             onCancel={() => setModal(null)}
           />
