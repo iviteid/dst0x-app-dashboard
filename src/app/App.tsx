@@ -82,10 +82,13 @@ import DeviceMonitor from "../features/devices/components/DeviceMonitor";
 import { deviceKind, devicePosition, kindLabels } from "../features/devices/lib/deviceGeo";
 import { supabase, signIn, signUp, signOut, createRole, deleteRole, getCompanyName, getCurrentProfile, getUserPermissions, listRoles, updateRole, type AppRole, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
 
-const POLL_INTERVAL = 30 * 1000;
+const POLL_INTERVAL = 15 * 1000;
 
 function useLiveData(devices: Device[]) {
   const [, tick] = useState(0);
+  const prevValues = useRef<Map<string, number>>(new Map());
+  const [updatedIds, setUpdatedIds] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     let mounted = true;
     const poll = async () => {
@@ -93,8 +96,20 @@ function useLiveData(devices: Device[]) {
         devices.map((device) => fetchDeviceData(device.id)),
       );
       if (mounted) {
+        const changed = new Set<string>();
         for (const result of results) {
-          if (result) updateLiveData(result.sensors, result.telemetry, result.lastSeen);
+          if (!result) continue;
+          for (const s of result.sensors) {
+            if (s.quality === "valid" && prevValues.current.get(s.id) !== s.value) {
+              changed.add(s.id);
+              prevValues.current.set(s.id, s.value);
+            }
+          }
+          updateLiveData(result.sensors, result.telemetry, result.lastSeen);
+        }
+        if (changed.size > 0) {
+          setUpdatedIds(changed);
+          setTimeout(() => setUpdatedIds(new Set()), 1500);
         }
       }
     };
@@ -103,6 +118,8 @@ function useLiveData(devices: Device[]) {
     const unsub = onDataUpdate(() => tick((n) => n + 1));
     return () => { mounted = false; clearInterval(id); unsub(); };
   }, [devices]);
+
+  return updatedIds;
 }
 
 type Theme = "light" | "dark" | "system";
@@ -114,6 +131,7 @@ type PageProps = {
   go: (path: string) => void;
   notify: (text: string, kind?: "error" | "success") => void;
   refresh: () => void;
+  updatedSensorIds?: Set<string>;
 };
 const read = <T,>(key: string, fallback: T): T => {
   try {
@@ -3283,7 +3301,7 @@ export default function App() {
     }
     setAlerts(read("agrivaid-alerts", initialAlerts));
   };
-  useLiveData(devices);
+  const updatedSensorIds = useLiveData(devices);
   const notify = (text: string, kind: "error" | "success" = "success") => {
     setNotice({ text, kind });
     setTimeout(() => setNotice(null), 3600);
@@ -3354,7 +3372,7 @@ export default function App() {
     setPermissions([]);
     go("/login");
   };
-  const props = { devices, alerts, farm, go, notify, refresh };
+  const props = { devices, alerts, farm, go, notify, refresh, updatedSensorIds };
   let page: React.ReactNode = null;
   if (!session && isPublic(path))
     page = <AuthPage path={path} go={go} login={login} notify={notify} />;
