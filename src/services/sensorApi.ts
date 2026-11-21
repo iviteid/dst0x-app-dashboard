@@ -84,11 +84,12 @@ async function loadSensorChannels(deviceId: string) {
   return (data ?? []).map((row) => channelFromRow(row as SensorChannelRow));
 }
 
-export async function saveSensorChannelConfiguration(sensor: Sensor) {
-  const { data: companyId, error: companyError } = await supabase.rpc(
+export async function saveSensorChannelConfiguration(sensor: Sensor, targetCompanyId?: string) {
+  const { data: currentCompanyId, error: companyError } = await supabase.rpc(
     "current_company_id",
   );
   if (companyError) throw companyError;
+  const companyId = targetCompanyId ?? currentCompanyId;
   if (!companyId) throw new Error("Your account is not assigned to a company.");
   const { error } = await supabase.from("sensor_channels").upsert(
     {

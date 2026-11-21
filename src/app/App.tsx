@@ -74,7 +74,7 @@ import {
   fetchDeviceData,
   saveSensorChannelConfiguration,
 } from "../services/sensorApi";
-import { createCompany, createSensorChannel, deleteRegisteredDevice, getCompany, listRegisteredDevices, listRegisteredSensors, saveRegisteredDevice, updateCompany, type Company } from "../services/registry";
+import { createCompany, createSensorChannel, deleteCompany, deleteRegisteredDevice, deleteSensorChannel, getCompany, listCompanies, listRegisteredDevices, listRegisteredSensors, saveRegisteredDevice, updateCompany, type Company } from "../services/registry";
 import { demoService } from "../services/dataService";
 import DeviceMap from "../features/dashboard/components/DeviceMap";
 import FirmwareOta from "../features/firmware/components/FirmwareOta";
@@ -1219,9 +1219,14 @@ function DeviceForm({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [loadingInterval] = useState(false);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const change = (key: keyof Device, value: unknown) =>
     setForm({ ...form, [key]: value });
   const availableZones = zones.filter((z) => z.farmId === form.farmId);
+
+  useEffect(() => {
+    void listCompanies().then(setCompanies).catch(() => setCompanies([]));
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1294,6 +1299,15 @@ function DeviceForm({
           disabled={!!device}
         />
       </label>
+      {companies.length > 0 && (
+        <label>
+          Company
+          <select value={form.companyId ?? ""} onChange={(event) => change("companyId", event.target.value)} required>
+            <option value="" disabled>Select company</option>
+            {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+          </select>
+        </label>
+      )}
       <label>
         Model
         <input
@@ -1559,7 +1573,7 @@ function Devices({ devices, alerts, farm, go, notify, refresh }: PageProps) {
   );
 }
 
-function SensorEditModal({ sensor, onClose, notify }: { sensor: Sensor; onClose: () => void; notify: (m: string, kind?: "error" | "success") => void }) {
+function SensorEditModal({ sensor, companyId, onClose, notify }: { sensor: Sensor; companyId?: string; onClose: () => void; notify: (m: string, kind?: "error" | "success") => void }) {
   const [name, setName] = useState(sensor.name);
   const [unit, setUnit] = useState(sensor.unit);
   const [min, setMin] = useState(sensor.min != null ? String(sensor.min) : "");
@@ -1584,7 +1598,7 @@ function SensorEditModal({ sensor, onClose, notify }: { sensor: Sensor; onClose:
     };
     setSaving(true);
     try {
-      await saveSensorChannelConfiguration(next);
+      await saveSensorChannelConfiguration(next, companyId);
       updateSensor(sensor.id, patch);
       notify("Sensor configuration saved to the database.");
       onClose();
@@ -1650,8 +1664,9 @@ function SensorEditModal({ sensor, onClose, notify }: { sensor: Sensor; onClose:
   );
 }
 
-function SensorCreateModal({ deviceId, onClose, notify, onCreated }: {
+function SensorCreateModal({ deviceId, companyId, onClose, notify, onCreated }: {
   deviceId: string;
+  companyId?: string;
   onClose: () => void;
   notify: (message: string, kind?: "error" | "success") => void;
   onCreated: () => void | Promise<void>;
@@ -1672,7 +1687,7 @@ function SensorCreateModal({ deviceId, onClose, notify, onCreated }: {
       await createSensorChannel({
         id: id.trim(), deviceId, name: name.trim(), type: type.trim(), unit: unit.trim(),
         value: 0, quality: "missing", timestamp: "",
-      });
+      }, companyId);
       await onCreated();
       notify("Sensor ID saved to the company registry.");
       onClose();
@@ -1694,9 +1709,19 @@ function SensorCreateModal({ deviceId, onClose, notify, onCreated }: {
   </Modal>;
 }
 
-function ChannelsTab({ deviceId, sensors, notify, refresh }: { deviceId: string; sensors: Sensor[]; notify: (m: string, kind?: "error" | "success") => void; refresh: () => void | Promise<void> }) {
+function ChannelsTab({ deviceId, companyId, sensors, notify, refresh }: { deviceId: string; companyId?: string; sensors: Sensor[]; notify: (m: string, kind?: "error" | "success") => void; refresh: () => void | Promise<void> }) {
   const [editing, setEditing] = useState<Sensor | null>(null);
   const [creating, setCreating] = useState(false);
+  const remove = async (sensor: Sensor) => {
+    if (!window.confirm(`Delete sensor ID ${sensor.id}?`)) return;
+    try {
+      await deleteSensorChannel(sensor.deviceId, sensor.id);
+      await refresh();
+      notify("Sensor ID deleted.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not delete the sensor ID.", "error");
+    }
+  };
   return (
     <Card className="padded">
       <div className="split-head"><PanelHead title="Sensor channels" detail={`${sensors.length} configured channels`} /><Button variant="primary" onClick={() => setCreating(true)}><Plus size={16} /> Add sensor ID</Button></div>
@@ -1725,7 +1750,7 @@ function ChannelsTab({ deviceId, sensors, notify, refresh }: { deviceId: string;
                   </td>
                   <td><Badge>{s.quality}</Badge></td>
                   <td>{s.quality === "missing" || !s.timestamp ? "—" : timeShort(s.timestamp)}</td>
-                  <td><button className="ch-btn ch-btn-edit" onClick={() => setEditing(s)}><Pencil size={14} /></button></td>
+                  <td><div className="table-actions"><button className="ch-btn ch-btn-edit" onClick={() => setEditing(s)} aria-label={`Edit ${s.name}`}><Pencil size={14} /></button><button className="ch-btn ch-btn-edit" onClick={() => void remove(s)} aria-label={`Delete ${s.name}`}><Trash2 size={14} /></button></div></td>
                 </tr>
               ))}
             </tbody>
@@ -1734,8 +1759,8 @@ function ChannelsTab({ deviceId, sensors, notify, refresh }: { deviceId: string;
       ) : (
         <Empty title="No sensors configured" detail="Create the first sensor ID for this device from the administrator dashboard." />
       )}
-      {editing && <SensorEditModal sensor={editing} onClose={() => setEditing(null)} notify={notify} />}
-      {creating && <SensorCreateModal deviceId={deviceId} onClose={() => setCreating(false)} notify={notify} onCreated={refresh} />}
+      {editing && <SensorEditModal sensor={editing} companyId={companyId} onClose={() => setEditing(null)} notify={notify} />}
+      {creating && <SensorCreateModal deviceId={deviceId} companyId={companyId} onClose={() => setCreating(false)} notify={notify} onCreated={refresh} />}
     </Card>
   );
 }
@@ -1816,7 +1841,7 @@ function DeviceDetail({
         <DeviceMonitor device={d} sensors={sensors} notify={notify} />
       )}
       {tab === "channels" && (
-        <ChannelsTab deviceId={d.id} sensors={sensors} notify={notify} refresh={refresh} />
+        <ChannelsTab deviceId={d.id} companyId={d.companyId} sensors={sensors} notify={notify} refresh={refresh} />
       )}
       {tab === "telemetry" && (
         <Card className="padded">
@@ -2106,6 +2131,7 @@ function CompanyPage({
   onCompanyChanged: () => Promise<void>;
 }) {
   const [company, setCompany] = useState<Company | null>(null);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [loading, setLoading] = useState(true);
@@ -2116,9 +2142,13 @@ function CompanyPage({
     let active = true;
     const load = async () => {
       setLoading(true);
-      const next = profile?.company_id ? await getCompany(profile.company_id) : null;
+      const [next, allCompanies] = await Promise.all([
+        profile?.company_id ? getCompany(profile.company_id) : Promise.resolve(null),
+        canManage ? listCompanies() : Promise.resolve([]),
+      ]);
       if (active) {
         setCompany(next);
+        setCompanies(allCompanies);
         setName(next?.name ?? "");
         setSlug(next?.slug ?? "");
         setLoading(false);
@@ -2126,7 +2156,7 @@ function CompanyPage({
     };
     void load();
     return () => { active = false; };
-  }, [profile?.company_id]);
+  }, [profile?.company_id, canManage]);
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -2142,12 +2172,30 @@ function CompanyPage({
         ? await updateCompany(company.id, cleanName, cleanSlug)
         : await createCompany(cleanName, cleanSlug);
       setCompany(next);
+      setCompanies(await listCompanies());
       await onCompanyChanged();
       notify(company ? "Company updated." : "Company created and assigned to your account.");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Could not save the company.", "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const removeCompany = async (item: Company) => {
+    if (!window.confirm(`Delete ${item.name}? Its device and sensor registry will also be deleted. Telemetry in MongoDB is not deleted.`)) return;
+    try {
+      await deleteCompany(item.id);
+      setCompanies((items) => items.filter((current) => current.id !== item.id));
+      if (company?.id === item.id) {
+        setCompany(null);
+        setName("");
+        setSlug("");
+      }
+      await onCompanyChanged();
+      notify("Company deleted.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not delete the company.", "error");
     }
   };
 
@@ -2178,6 +2226,12 @@ function CompanyPage({
           </form>
         )}
       </Card>
+      {canManage && <Card className="padded">
+        <PanelHead title="All companies" detail={`${companies.length} registered companies`} />
+        {companies.length ? <div className="table-scroll"><table><thead><tr><th>Company</th><th>Slug</th><th>Created</th><th>Action</th></tr></thead><tbody>
+          {companies.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.id}</small></td><td>{item.slug}</td><td>{formatTime(item.created_at)}</td><td><div className="table-actions"><button className="text-action" onClick={() => { setCompany(item); setName(item.name); setSlug(item.slug); }}>Edit</button><button className="text-action danger" onClick={() => void removeCompany(item)}>Delete</button></div></td></tr>)}
+        </tbody></table></div> : <Empty title="No companies" detail="Create the first company to begin registering devices." />}
+      </Card>}
     </div>
   </>;
 }

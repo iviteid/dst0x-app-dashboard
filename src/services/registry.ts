@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 
 type DeviceRow = {
   id: string;
+  company_id: string;
   name: string;
   model: string;
   protocol: string;
@@ -29,6 +30,7 @@ export type Company = {
 function deviceFromRow(row: DeviceRow): Device {
   return {
     id: row.id,
+    companyId: row.company_id,
     farmId: DEFAULT_FARM_ID,
     zoneId: DEFAULT_ZONE_ID,
     name: row.name,
@@ -49,17 +51,16 @@ function deviceFromRow(row: DeviceRow): Device {
 export async function listRegisteredDevices(): Promise<Device[]> {
   const { data, error } = await supabase
     .from("devices")
-    .select("id, name, model, protocol, status, reporting_interval_seconds, description, tags, kind, latitude, longitude, updated_at")
+    .select("id, company_id, name, model, protocol, status, reporting_interval_seconds, description, tags, kind, latitude, longitude, updated_at")
     .order("created_at", { ascending: true });
   if (error) throw error;
   return (data as DeviceRow[] | null ?? []).map(deviceFromRow);
 }
 
 export async function saveRegisteredDevice(device: Device): Promise<Device> {
-  const { data: companyId, error: companyError } = await supabase.rpc(
-    "current_company_id",
-  );
+  const { data: currentCompanyId, error: companyError } = await supabase.rpc("current_company_id");
   if (companyError) throw companyError;
+  const companyId = device.companyId ?? currentCompanyId;
   if (!companyId) throw new Error("Your account is not assigned to a company.");
 
   const { data, error } = await supabase
@@ -82,7 +83,7 @@ export async function saveRegisteredDevice(device: Device): Promise<Device> {
       },
       { onConflict: "id" },
     )
-    .select("id, name, model, protocol, status, reporting_interval_seconds, description, tags, kind, latitude, longitude, updated_at")
+    .select("id, company_id, name, model, protocol, status, reporting_interval_seconds, description, tags, kind, latitude, longitude, updated_at")
     .single();
   if (error) throw error;
   return deviceFromRow(data as DeviceRow);
@@ -112,6 +113,20 @@ export async function getCompany(id: string): Promise<Company | null> {
   return data as Company;
 }
 
+export async function listCompanies(): Promise<Company[]> {
+  const { data, error } = await supabase
+    .from("companies")
+    .select("id, name, slug, created_at")
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as Company[];
+}
+
+export async function deleteCompany(id: string) {
+  const { error } = await supabase.from("companies").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function updateCompany(id: string, name: string, slug: string) {
   const { data, error } = await supabase
     .from("companies")
@@ -123,11 +138,12 @@ export async function updateCompany(id: string, name: string, slug: string) {
   return data as Company;
 }
 
-export async function createSensorChannel(sensor: Sensor) {
-  const { data: companyId, error: companyError } = await supabase.rpc(
+export async function createSensorChannel(sensor: Sensor, targetCompanyId?: string) {
+  const { data: currentCompanyId, error: companyError } = await supabase.rpc(
     "current_company_id",
   );
   if (companyError) throw companyError;
+  const companyId = targetCompanyId ?? currentCompanyId;
   if (!companyId) throw new Error("Your account is not assigned to a company.");
 
   const { error } = await supabase.from("sensor_channels").insert({
@@ -142,6 +158,15 @@ export async function createSensorChannel(sensor: Sensor) {
     decimal_places: sensor.decimals ?? null,
     enabled: true,
   });
+  if (error) throw error;
+}
+
+export async function deleteSensorChannel(deviceId: string, sensorId: string) {
+  const { error } = await supabase
+    .from("sensor_channels")
+    .delete()
+    .eq("device_id", deviceId)
+    .eq("sensor_id", sensorId);
   if (error) throw error;
 }
 
