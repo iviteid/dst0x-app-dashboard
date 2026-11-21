@@ -19,6 +19,13 @@ type DeviceRow = {
 const DEFAULT_FARM_ID = "company";
 const DEFAULT_ZONE_ID = "default";
 
+export type Company = {
+  id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+};
+
 function deviceFromRow(row: DeviceRow): Device {
   return {
     id: row.id,
@@ -92,7 +99,28 @@ export async function createCompany(name: string, slug: string) {
     company_slug: slug,
   });
   if (error) throw error;
-  return data as { id: string; name: string; slug: string };
+  return data as Company;
+}
+
+export async function getCompany(id: string): Promise<Company | null> {
+  const { data, error } = await supabase
+    .from("companies")
+    .select("id, name, slug, created_at")
+    .eq("id", id)
+    .single();
+  if (error || !data) return null;
+  return data as Company;
+}
+
+export async function updateCompany(id: string, name: string, slug: string) {
+  const { data, error } = await supabase
+    .from("companies")
+    .update({ name, slug, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("id, name, slug, created_at")
+    .single();
+  if (error) throw error;
+  return data as Company;
 }
 
 export async function createSensorChannel(sensor: Sensor) {

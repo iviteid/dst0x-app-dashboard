@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   ArrowDownToLine,
   Bell,
+  Building2,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -73,7 +74,7 @@ import {
   fetchDeviceData,
   saveSensorChannelConfiguration,
 } from "../services/sensorApi";
-import { createCompany, createSensorChannel, deleteRegisteredDevice, listRegisteredDevices, listRegisteredSensors, saveRegisteredDevice } from "../services/registry";
+import { createCompany, createSensorChannel, deleteRegisteredDevice, getCompany, listRegisteredDevices, listRegisteredSensors, saveRegisteredDevice, updateCompany, type Company } from "../services/registry";
 import { demoService } from "../services/dataService";
 import DeviceMap from "../features/dashboard/components/DeviceMap";
 import FirmwareOta from "../features/firmware/components/FirmwareOta";
@@ -133,6 +134,7 @@ const iconMap = {
   alerts: Bell,
   reports: FileBarChart,
   "firmware-ota": CloudUpload,
+  company: Building2,
   profile: UserRound,
   settings: SettingsIcon,
 };
@@ -140,6 +142,7 @@ const nav: [string, string][] = [
   ["dashboard", "Overview"],
   ["devices", "Devices"],
   ["firmware-ota", "Firmware OTA"],
+  ["company", "Company"],
 ];
 const badge = (text: string) =>
   `badge ${/critical|offline|missing|error/i.test(text) ? "danger" : /warning|stale|suspect|low/i.test(text) ? "warning" : /information|recent/i.test(text) ? "info" : "success"}`;
@@ -2093,6 +2096,92 @@ function Profile({
   );
 }
 
+function CompanyPage({
+  profile,
+  notify,
+  onCompanyChanged,
+}: {
+  profile: UserProfile | null;
+  notify: (message: string, kind?: "error" | "success") => void;
+  onCompanyChanged: () => Promise<void>;
+}) {
+  const [company, setCompany] = useState<Company | null>(null);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const canManage = profile?.role === "admin";
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setLoading(true);
+      const next = profile?.company_id ? await getCompany(profile.company_id) : null;
+      if (active) {
+        setCompany(next);
+        setName(next?.name ?? "");
+        setSlug(next?.slug ?? "");
+        setLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [profile?.company_id]);
+
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const cleanName = name.trim();
+    const cleanSlug = slug.trim().toLowerCase();
+    if (!cleanName || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(cleanSlug)) {
+      notify("Enter a company name and a lowercase slug using letters, numbers, or hyphens.", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      const next = company
+        ? await updateCompany(company.id, cleanName, cleanSlug)
+        : await createCompany(cleanName, cleanSlug);
+      setCompany(next);
+      await onCompanyChanged();
+      notify(company ? "Company updated." : "Company created and assigned to your account.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not save the company.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <>
+    <PageHead
+      title="Company"
+      description="Manage the company that owns users, devices, sensor IDs, and telemetry access."
+    />
+    <div className="settings-stack">
+      <Card className="padded">
+        <PanelHead
+          title={company ? "Company details" : "Create your company"}
+          detail={company ? "This is the current data-access boundary." : "Create a company before registering devices and sensor IDs."}
+        />
+        {loading ? <p className="muted">Loading company…</p> : (
+          <form onSubmit={save} className="form-grid">
+            <label>
+              Company name
+              <input value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage || saving} required />
+            </label>
+            <label>
+              Company slug
+              <input value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase())} placeholder="dstx-indonesia" disabled={!canManage || saving} required />
+            </label>
+            {company && <div className="key-values full"><div><span>Company ID</span><b>{company.id}</b></div><div><span>Created</span><b>{formatTime(company.created_at)}</b></div></div>}
+            {!canManage && <p className="hint full">Only a company administrator can create or edit this record.</p>}
+            {canManage && <div className="form-actions full"><Button variant="primary" type="submit" disabled={saving}>{saving ? "Saving…" : company ? "Save company" : "Create company"}</Button></div>}
+          </form>
+        )}
+      </Card>
+    </div>
+  </>;
+}
+
 const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
   { label: "Device", permissions: ["devices.view", "devices.edit", "devices.create", "devices.delete"] },
   { label: "Sensor", permissions: ["sensors.view", "sensors.create", "sensors.edit", "sensors.delete"] },
@@ -3231,6 +3320,14 @@ export default function App() {
     setNotice({ text, kind });
     setTimeout(() => setNotice(null), 3600);
   };
+  const reloadProfile = async () => {
+    const next = await getCurrentProfile();
+    setProfile(next);
+    if (next) {
+      setPermissions(await getUserPermissions(next.role));
+      await refresh();
+    }
+  };
   const setTheme = (v: Theme) => {
     setThemeState(v);
     localStorage.setItem("agrivaid-theme", v);
@@ -3253,25 +3350,13 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       if (s) {
         setSession(true);
-        getCurrentProfile().then((p) => {
-          if (p) {
-            setProfile(p);
-            getUserPermissions(p.role).then(setPermissions);
-            void refresh();
-          }
-        });
+        void reloadProfile();
       }
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       if (s) {
         setSession(true);
-        getCurrentProfile().then((p) => {
-          if (p) {
-            setProfile(p);
-            getUserPermissions(p.role).then(setPermissions);
-            void refresh();
-          }
-        });
+        void reloadProfile();
       } else if (!localStorage.getItem("agrivaid-demo-session")) {
         setSession(false);
         setProfile(null);
@@ -3307,6 +3392,7 @@ export default function App() {
     page = <AuthPage path={path} go={go} login={login} notify={notify} />;
   else if (session) {
     if (path === "/dashboard") page = <Dashboard {...props} />;
+    else if (path === "/company") page = <CompanyPage profile={profile} notify={notify} onCompanyChanged={reloadProfile} />;
     else if (path === "/devices") page = <Devices {...props} />;
     else if (path.startsWith("/devices/"))
       page = (
