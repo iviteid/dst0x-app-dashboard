@@ -909,6 +909,15 @@ small {
   margin-top: 10px;
   font-weight: 500;
 }
+@keyframes sc-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(15, 185, 160, 0.5); border-top-color: var(--primary); }
+  50%  { box-shadow: 0 0 0 8px rgba(15, 185, 160, 0); border-top-color: var(--primary); }
+  100% { box-shadow: 0 0 0 0 rgba(15, 185, 160, 0); }
+}
+.sc-card.sc-updated {
+  border-top-color: var(--primary);
+  animation: sc-pulse 1.5s ease-out;
+}
 .sc-id.sc-id-active {
   color: var(--primary);
   font-weight: 600;

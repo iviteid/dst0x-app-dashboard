@@ -954,7 +954,7 @@ function AppShell({
   );
 }
 
-function SensorCarousel({ devices, go }: { devices: Device[]; go: (p: string) => void }) {
+function SensorCarousel({ devices, go, updatedSensorIds }: { devices: Device[]; go: (p: string) => void; updatedSensorIds?: Set<string> }) {
   const deviceMap = new Map(devices.map((d) => [d.id, d]));
   const allSensors = devices.flatMap((d) => initialSensors.filter((s) => s.deviceId === d.id));
   const deviceKey = devices.map((d) => d.id).join(",");
@@ -1027,7 +1027,7 @@ function SensorCarousel({ devices, go }: { devices: Device[]; go: (p: string) =>
         <button className="sc-arrow sc-arrow-left" onClick={() => goTo(active - 1)} aria-label="Previous reading" disabled={active === 0}><ChevronLeft size={16} /></button>
         <div className="sc-track" ref={scrollRef} onScroll={onScroll}>
           {allSensors.map((s, i) => (
-            <button type="button" key={s.id} className={`sc-card ${i === active ? "sc-active" : ""}`}
+            <button type="button" key={s.id} className={`sc-card ${i === active ? "sc-active" : ""} ${updatedSensorIds?.has(s.id) ? "sc-updated" : ""}`}
               aria-pressed={i === active}
               aria-label={`${s.name}: ${s.quality === "missing" ? "no reading" : `${s.value} ${s.unit}`}. ${i === active ? "Open device details" : "Select reading"}`}
               onClick={() => { if (i !== active) goTo(i); else go(`/devices/${encodeURIComponent(s.deviceId)}`); }}
@@ -1052,7 +1052,7 @@ function SensorCarousel({ devices, go }: { devices: Device[]; go: (p: string) =>
   );
 }
 
-function Dashboard({ devices, farm, go, notify, refresh }: PageProps) {
+function Dashboard({ devices, farm, go, notify, refresh, updatedSensorIds }: PageProps) {
   const scoped = devices.filter((d) => farm === "all" || d.farmId === farm);
   return (
     <>
@@ -1077,7 +1077,7 @@ function Dashboard({ devices, farm, go, notify, refresh }: PageProps) {
         <span className="overview-section-chip">Updated {formatTime(DEMO_NOW)}</span>
       </div>
       <div className="sc-grid">
-        <SensorCarousel devices={scoped} go={go} />
+        <SensorCarousel devices={scoped} go={go} updatedSensorIds={updatedSensorIds} />
       </div>
       <DeviceMap devices={devices} farm={farm} go={go} />
     </>
