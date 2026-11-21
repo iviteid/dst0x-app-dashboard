@@ -18,15 +18,15 @@ import {
   Settings as SettingsIcon,
   X,
 } from "lucide-react";
-import type { Device, Sensor } from "./types";
+import type { Device, Sensor } from "../../../shared/types/domain";
 import {
   DEMO_NOW,
   csv,
   downloadFile,
   initialTelemetry,
   updateLiveData,
-} from "./data";
-import { fetchDeviceData } from "./api";
+} from "../../../store/liveData";
+import { fetchDeviceData } from "../../../services/sensorApi";
 
 const JAKARTA_OFFSET = 7 * 3600000;
 const palette = [
@@ -172,7 +172,7 @@ export default function DeviceMonitor({
       if (requestInFlight) return;
       requestInFlight = true;
       try {
-        const result = await fetchDeviceData();
+        const result = await fetchDeviceData(device.id);
         if (active && result) {
           updateLiveData(result.sensors, result.telemetry, result.lastSeen);
           setTick((value) => value + 1);

@@ -1,4 +1,4 @@
-import type { Alert, Device, Sensor, Telemetry } from "./types";
+import type { Alert, Device, Sensor, Telemetry } from "../shared/types/domain";
 import {
   initialAlerts,
   initialDevices,
@@ -6,7 +6,7 @@ import {
   initialTelemetry,
   csv,
   downloadFile,
-} from "./data";
+} from "../store/liveData";
 export interface DataService {
   listDevices(farmId?: string): Promise<Device[]>;
   getDeviceById(id: string): Promise<Device | undefined>;

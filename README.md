@@ -27,9 +27,31 @@ The demo login stores only a local session flag. Signup, password recovery, and 
 
 ## Integration boundary
 
-`src/types.ts` holds the domain types. `src/data.ts` supplies deterministic demo data. `src/service.ts` defines `DataService`, a local `demoService`, and a `BackendAdapter` contract for authenticated HTTP endpoints. The application currently uses the demo adapter only.
+The source is organized by responsibility:
+
+```
+src/
+├── app/                 # application entry point, shell, and global styles
+├── features/            # feature-specific UI and domain logic
+├── services/            # API clients and data-service adapters
+├── shared/              # cross-cutting types and configuration
+└── store/               # live in-browser demo state
+```
+
+`src/shared/types/domain.ts` holds the domain types. `src/store/liveData.ts` supplies live in-browser demo state. `src/services/dataService.ts` defines `DataService`, a local `demoService`, and a `BackendAdapter` contract for authenticated HTTP endpoints. The application currently uses the demo adapter only.
 
 A live deployment needs an authenticated backend, organization scoped authorization, validated telemetry ingestion, persisted data, and error handling. MQTT or device side RS485, UART, and SDI-12 traffic must terminate at an authorized gateway or server. Do not place broker credentials or service role keys in the browser bundle. Telemetry is represented in UTC and displayed in Asia/Jakarta in the demo.
+
+## Production data stores
+
+The application uses a control-plane/data-plane split:
+
+- **Supabase:** Auth users, companies, user-to-company assignment, role permissions, device IDs, and sensor IDs. Apply [003_companies_devices_and_company_access.sql](supabase/migrations/003_companies_devices_and_company_access.sql) after the existing migrations.
+- **MongoDB:** sensor readings only. The browser accesses readings through an authenticated ingestion/query API; it must not access MongoDB directly. The required document shape and indexes are in [mongodb-telemetry-schema.md](docs/mongodb-telemetry-schema.md).
+
+The dashboard starts with no registered device or sensor ID. An administrator can create a company from **Peran Pengguna**, then create device and sensor IDs from the dashboard. With no sensor ID, the overview deliberately displays one unnamed placeholder card rather than bundled sample parameters.
+
+Set `VITE_TELEMETRY_API_URL` only to the authenticated telemetry API URL (for example `https://api.example.com/v1/sensor-records`). Never set a MongoDB connection string in a `VITE_*` variable because Vite exposes those values to every browser.
 
 ## Data semantics
 

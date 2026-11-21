@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Cpu, FileUp, Radio, ShieldAlert, UploadCloud } from "lucide-react";
-import type { Device } from "./types";
-import { farmName } from "./data";
+import type { Device } from "../../../shared/types/domain";
+import { farmName } from "../../../store/liveData";
 
 type Run = { id: string; at: string; model: string; version: string; targets: string[]; packageName: string; sha256: string };
 const historyKey = "agrivaid-ota-history";

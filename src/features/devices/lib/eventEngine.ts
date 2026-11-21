@@ -1,5 +1,5 @@
-import type { Device, Sensor, Telemetry, Alert, Severity } from "./types";
-import { DEMO_NOW, initialSensors, initialTelemetry, farms, zones } from "./data";
+import type { Device, Sensor, Telemetry, Alert, Severity } from "../../../shared/types/domain";
+import { DEMO_NOW, initialSensors, initialTelemetry, farms, zones } from "../../../store/liveData";
 
 /* ── Crop profiles ────────────────────────────────────────── */
 export interface CropProfile {

@@ -18,9 +18,9 @@ import {
   Thermometer,
   X,
 } from "lucide-react";
-import type { Device } from "./types";
-import { farmName, formatTime, zoneName } from "./data";
-import { deviceKind, devicePosition, kindLabels } from "./deviceGeo";
+import type { Device } from "../../../shared/types/domain";
+import { farmName, formatTime, zoneName } from "../../../store/liveData";
+import { deviceKind, devicePosition, kindLabels } from "../../devices/lib/deviceGeo";
 
 const icons = {
   climate: Thermometer,

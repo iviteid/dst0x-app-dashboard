@@ -10,10 +10,10 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Area, AreaChart,
 } from "recharts";
-import type { Device, Sensor, Telemetry } from "./types";
-import type { SensorEvent, EventSummary, DataIntegrityIssue, ImpactAnalysis } from "./eventEngine";
-import { detectEvents, summarizeEvents, getThreshold, getCropProfile } from "./eventEngine";
-import { DEMO_NOW, formatTime, initialSensors, initialTelemetry, csv, downloadFile, farmName, zoneName } from "./data";
+import type { Device, Sensor, Telemetry } from "../../../shared/types/domain";
+import type { SensorEvent, EventSummary, DataIntegrityIssue, ImpactAnalysis } from "../lib/eventEngine";
+import { detectEvents, summarizeEvents, getThreshold, getCropProfile } from "../lib/eventEngine";
+import { DEMO_NOW, formatTime, initialSensors, initialTelemetry, csv, downloadFile, farmName, zoneName } from "../../../store/liveData";
 
 const severityIcon = { critical: AlertTriangle, warning: Activity, information: Info };
 const severityColor: Record<string, string> = { critical: "#ef4444", warning: "#f59e0b", information: "#3b82f6" };

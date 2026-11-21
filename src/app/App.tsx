@@ -50,7 +50,7 @@ import {
   Shield,
   Server,
 } from "lucide-react";
-import type { Alert, Device, Sensor, Telemetry } from "./types";
+import type { Alert, Device, Sensor, Telemetry } from "../shared/types/domain";
 import {
   DEMO_NOW,
   csv,
@@ -63,42 +63,46 @@ import {
   initialSensors,
   initialTelemetry,
   onDataUpdate,
+  replaceRegisteredSensors,
   updateLiveData,
   updateSensor,
   zoneName,
   zones,
-} from "./data";
+} from "../store/liveData";
 import {
   fetchDeviceData,
-  fetchDeviceInterval,
   saveSensorChannelConfiguration,
-  updateDeviceInterval,
-} from "./api";
-import { demoService } from "./service";
-import DeviceMap from "./DeviceMap";
-import FirmwareOta from "./FirmwareOta";
-import DeviceMonitor from "./DeviceMonitor";
-import { DeviceEventsTab } from "./DeviceEvents";
-import { deviceKind, devicePosition, kindLabels, zoneCenters } from "./deviceGeo";
-import { supabase, signIn, signUp, signOut, getCurrentProfile, getUserPermissions, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "./supabase";
+} from "../services/sensorApi";
+import { createCompany, createSensorChannel, deleteRegisteredDevice, listRegisteredDevices, listRegisteredSensors, saveRegisteredDevice } from "../services/registry";
+import { demoService } from "../services/dataService";
+import DeviceMap from "../features/dashboard/components/DeviceMap";
+import FirmwareOta from "../features/firmware/components/FirmwareOta";
+import DeviceMonitor from "../features/devices/components/DeviceMonitor";
+import { DeviceEventsTab } from "../features/devices/components/DeviceEvents";
+import { deviceKind, devicePosition, kindLabels, zoneCenters } from "../features/devices/lib/deviceGeo";
+import { supabase, signIn, signUp, signOut, getCurrentProfile, getUserPermissions, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
 
 const POLL_INTERVAL = 30 * 1000;
 
-function useLiveData() {
+function useLiveData(devices: Device[]) {
   const [, tick] = useState(0);
   useEffect(() => {
     let mounted = true;
     const poll = async () => {
-      const result = await fetchDeviceData();
-      if (result && mounted) {
-        updateLiveData(result.sensors, result.telemetry, result.lastSeen);
+      const results = await Promise.all(
+        devices.map((device) => fetchDeviceData(device.id)),
+      );
+      if (mounted) {
+        for (const result of results) {
+          if (result) updateLiveData(result.sensors, result.telemetry, result.lastSeen);
+        }
       }
     };
     poll();
     const id = setInterval(poll, POLL_INTERVAL);
     const unsub = onDataUpdate(() => tick((n) => n + 1));
     return () => { mounted = false; clearInterval(id); unsub(); };
-  }, []);
+  }, [devices]);
 }
 
 type Theme = "light" | "dark" | "system";
@@ -119,18 +123,7 @@ const read = <T,>(key: string, fallback: T): T => {
   }
 };
 function loadDevices() {
-  const retiredDeviceIds = new Set([
-    "MTI-G7X26ZVJPQ5G",
-    "MTI-WQM-POND01",
-  ]);
-  const stored = read<Device[]>("agrivaid-devices", initialDevices).filter(
-    (device) => !retiredDeviceIds.has(device.id),
-  );
-  const liveDevice = initialDevices.find((device) => device.id === "RSC-001");
-  if (liveDevice && !stored.some((device) => device.id === liveDevice.id)) {
-    return [liveDevice, ...stored];
-  }
-  return stored;
+  return initialDevices;
 }
 const iconMap = {
   dashboard: Grid2X2,
@@ -1001,6 +994,23 @@ function SensorCarousel({ devices, go }: { devices: Device[]; go: (p: string) =>
     if (s.max != null && s.value > s.max) return false;
     return true;
   };
+  if (!allSensors.length) {
+    return (
+      <div className="sc-wrapper">
+        <div className="sc-track">
+          <div className="sc-card sc-active" role="status">
+            <div className="sc-card-inner">
+              <span className="sc-sensor-name">No sensor parameter</span>
+              <span className="sc-value sc-warn">—</span>
+              <span className="sc-unit">&nbsp;</span>
+              <span className="sc-range sc-range-warn">No sensor ID configured</span>
+              <span className="sc-id sc-id-active">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="sc-section">
       <div className="sc-wrapper">
@@ -1205,36 +1215,10 @@ function DeviceForm({
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [loadingInterval, setLoadingInterval] = useState(!!device);
+  const [loadingInterval] = useState(false);
   const change = (key: keyof Device, value: unknown) =>
     setForm({ ...form, [key]: value });
   const availableZones = zones.filter((z) => z.farmId === form.farmId);
-
-  useEffect(() => {
-    if (!device) return;
-    let active = true;
-    fetchDeviceInterval(device.id)
-      .then((intervalSeconds) => {
-        if (active) {
-          setForm((current) => ({ ...current, intervalSeconds }));
-        }
-      })
-      .catch((cause) => {
-        if (active) {
-          setError(
-            cause instanceof Error
-              ? cause.message
-              : "Unable to load reporting interval.",
-          );
-        }
-      })
-      .finally(() => {
-        if (active) setLoadingInterval(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [device]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1266,16 +1250,12 @@ function DeviceForm({
     setError("");
     try {
       const id = form.id.trim();
-      const intervalSeconds = await updateDeviceInterval(
-        id,
-        form.intervalSeconds,
-      );
       await onSave({
         ...form,
         id,
         name: form.name.trim(),
         model: form.model.trim(),
-        intervalSeconds,
+        intervalSeconds: form.intervalSeconds,
         ...position,
         zoneId: availableZones.some((z) => z.id === form.zoneId)
           ? form.zoneId
@@ -1291,8 +1271,8 @@ function DeviceForm({
   return (
     <form onSubmit={submit} className="form-grid">
       <p className="form-note full">
-        Device metadata is stored in this browser. Reporting interval is
-        synchronized with the DSTx backend.
+        Device metadata is stored in the Supabase registry. Telemetry is stored
+        separately in MongoDB through the ingestion service.
       </p>
       <label>
         Device name
@@ -1436,17 +1416,14 @@ function Devices({ devices, alerts, farm, go, notify, refresh }: PageProps) {
   useEffect(() => setPage(1), [farm, status, zone, protocol, query]);
   const pageRows = rows.slice((page - 1) * 8, page * 8);
   const save = async (d: Device) => {
-    await demoService.updateDevice(d);
+    await saveRegisteredDevice(d);
     refresh();
     setModal(null);
-    notify("Demo device saved in this browser.", "success");
+    notify("Device saved to the company registry.", "success");
   };
-  const remove = () => {
+  const remove = async () => {
     if (!selected) return;
-    localStorage.setItem(
-      "agrivaid-devices",
-      JSON.stringify(devices.filter((d) => d.id !== selected.id)),
-    );
+    await deleteRegisteredDevice(selected.id);
     refresh();
     setModal(null);
     notify("Demo device removed.", "success");
@@ -1542,7 +1519,7 @@ function Devices({ devices, alerts, farm, go, notify, refresh }: PageProps) {
         )}
       </Card>
       {modal === "add" && (
-        <Modal title="Add demo device" onClose={() => setModal(null)}>
+        <Modal title="Add device" onClose={() => setModal(null)}>
           <DeviceForm
             devices={devices}
             defaultFarm={farm === "all" ? farms[0].id : farm}
@@ -1562,15 +1539,15 @@ function Devices({ devices, alerts, farm, go, notify, refresh }: PageProps) {
         </Modal>
       )}
       {modal === "delete" && selected && (
-        <Modal title="Delete demo device?" onClose={() => setModal(null)}>
+        <Modal title="Delete device?" onClose={() => setModal(null)}>
           <p className="modal-copy">
-            This removes <b>{selected.name}</b> from this browser's demo state.
-            It does not affect physical hardware.
+            This removes <b>{selected.name}</b> and its sensor registry from
+            Supabase. It does not affect physical hardware or historical telemetry.
           </p>
           <div className="form-actions">
             <Button onClick={() => setModal(null)}>Cancel</Button>
             <Button variant="danger" onClick={remove}>
-              <Trash2 size={16} /> Delete demo device
+              <Trash2 size={16} /> Delete device
             </Button>
           </div>
         </Modal>
@@ -1670,11 +1647,56 @@ function SensorEditModal({ sensor, onClose, notify }: { sensor: Sensor; onClose:
   );
 }
 
-function ChannelsTab({ sensors, notify }: { sensors: Sensor[]; notify: (m: string) => void }) {
+function SensorCreateModal({ deviceId, onClose, notify, onCreated }: {
+  deviceId: string;
+  onClose: () => void;
+  notify: (message: string, kind?: "error" | "success") => void;
+  onCreated: () => void | Promise<void>;
+}) {
+  const [id, setId] = useState("");
+  const [name, setName] = useState("");
+  const [type, setType] = useState("");
+  const [unit, setUnit] = useState("");
+  const [saving, setSaving] = useState(false);
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!id.trim() || !name.trim() || !type.trim()) {
+      notify("Sensor ID, name, and type are required.", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      await createSensorChannel({
+        id: id.trim(), deviceId, name: name.trim(), type: type.trim(), unit: unit.trim(),
+        value: 0, quality: "missing", timestamp: "",
+      });
+      await onCreated();
+      notify("Sensor ID saved to the company registry.");
+      onClose();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not create the sensor ID.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <Modal title="Add sensor ID" onClose={onClose}>
+    <form onSubmit={save} className="form-grid">
+      <p className="form-note full">Only an administrator or a role with sensor-create permission can add a channel.</p>
+      <label>Sensor ID<input value={id} onChange={(event) => setId(event.target.value)} placeholder="e.g. RSC-tem" required /></label>
+      <label>Sensor name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Air temperature" required /></label>
+      <label>Sensor type<input value={type} onChange={(event) => setType(event.target.value)} placeholder="e.g. temperature" required /></label>
+      <label>Unit<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="e.g. °C" /></label>
+      <div className="form-actions full"><Button onClick={onClose}>Cancel</Button><Button type="submit" variant="primary" disabled={saving}>{saving ? "Saving…" : "Create sensor ID"}</Button></div>
+    </form>
+  </Modal>;
+}
+
+function ChannelsTab({ deviceId, sensors, notify, refresh }: { deviceId: string; sensors: Sensor[]; notify: (m: string, kind?: "error" | "success") => void; refresh: () => void | Promise<void> }) {
   const [editing, setEditing] = useState<Sensor | null>(null);
+  const [creating, setCreating] = useState(false);
   return (
     <Card className="padded">
-      <PanelHead title="Sensor channels" detail={`${sensors.length} configured channels`} />
+      <div className="split-head"><PanelHead title="Sensor channels" detail={`${sensors.length} configured channels`} /><Button variant="primary" onClick={() => setCreating(true)}><Plus size={16} /> Add sensor ID</Button></div>
       {sensors.length ? (
         <div className="table-scroll">
           <table>
@@ -1707,9 +1729,10 @@ function ChannelsTab({ sensors, notify }: { sensors: Sensor[]; notify: (m: strin
           </table>
         </div>
       ) : (
-        <Empty title="No sensors configured" detail="Add sensor channels through a connected backend." />
+        <Empty title="No sensors configured" detail="Create the first sensor ID for this device from the administrator dashboard." />
       )}
       {editing && <SensorEditModal sensor={editing} onClose={() => setEditing(null)} notify={notify} />}
+      {creating && <SensorCreateModal deviceId={deviceId} onClose={() => setCreating(false)} notify={notify} onCreated={refresh} />}
     </Card>
   );
 }
@@ -1747,20 +1770,17 @@ function DeviceDetail({
     .slice(-8)
     .reverse();
   const save = async (x: Device) => {
-    await demoService.updateDevice(x);
+    await saveRegisteredDevice(x);
     refresh();
     setModal(null);
-    notify("Device metadata saved locally.", "success");
+    notify("Device metadata saved to the company registry.", "success");
   };
-  const del = () => {
-    localStorage.setItem(
-      "agrivaid-devices",
-      JSON.stringify(devices.filter((x) => x.id !== d.id)),
-    );
+  const del = async () => {
+    await deleteRegisteredDevice(d.id);
     refresh();
     setModal(null);
     go("/devices");
-    notify("Demo device deleted.", "success");
+    notify("Device deleted from the company registry.", "success");
   };
   return (
     <>
@@ -1793,7 +1813,7 @@ function DeviceDetail({
         <DeviceMonitor device={d} sensors={sensors} notify={notify} />
       )}
       {tab === "channels" && (
-        <ChannelsTab sensors={sensors} notify={notify} />
+        <ChannelsTab deviceId={d.id} sensors={sensors} notify={notify} refresh={refresh} />
       )}
       {tab === "telemetry" && (
         <Card className="padded">
@@ -2067,7 +2087,7 @@ function Profile({
 
 const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
   { label: "Device", permissions: ["devices.view", "devices.edit", "devices.create", "devices.delete"] },
-  { label: "Sensor", permissions: ["sensors.view", "sensors.edit"] },
+  { label: "Sensor", permissions: ["sensors.view", "sensors.create", "sensors.edit", "sensors.delete"] },
   { label: "Member", permissions: ["users.view", "users.edit", "users.create", "users.delete"] },
   { label: "Settings", permissions: ["settings.view", "settings.edit"] },
 ];
@@ -2078,7 +2098,9 @@ const PERM_LABELS: Record<string, string> = {
   "devices.create": "Dapat menambah device",
   "devices.delete": "Dapat menghapus device",
   "sensors.view": "Dapat melihat sensor",
+  "sensors.create": "Dapat menambah sensor",
   "sensors.edit": "Dapat mengubah sensor",
+  "sensors.delete": "Dapat menghapus sensor",
   "users.view": "Dapat melihat anggota",
   "users.edit": "Dapat mengubah anggota",
   "users.create": "Dapat mengundang anggota",
@@ -2103,6 +2125,10 @@ function UserManagement({
   const [editUser, setEditUser] = useState<UserProfile | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [newRoleOpen, setNewRoleOpen] = useState(false);
+  const [companyOpen, setCompanyOpen] = useState(false);
+  const [companyName, setCompanyName] = useState("");
+  const [companySlug, setCompanySlug] = useState("");
+  const [companySaving, setCompanySaving] = useState(false);
 
   const [matrix, setMatrix] = useState<Record<Role, Set<string>>>(() => {
     const m: Record<string, Set<string>> = {};
@@ -2212,6 +2238,25 @@ function UserManagement({
     setDeleteRoleConfirm(r);
   };
 
+  const saveCompany = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const slug = companySlug.trim().toLowerCase();
+    if (!companyName.trim() || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      notify("Enter a company name and a lowercase slug using letters, numbers, or hyphens.", "error");
+      return;
+    }
+    setCompanySaving(true);
+    try {
+      await createCompany(companyName.trim(), slug);
+      notify("Company created and assigned to this administrator.");
+      setCompanyOpen(false);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not create company.", "error");
+    } finally {
+      setCompanySaving(false);
+    }
+  };
+
   const confirmDeleteRole = () => {
     if (!deleteRoleConfirm) return;
     const next = [...hiddenRoles, deleteRoleConfirm];
@@ -2224,7 +2269,7 @@ function UserManagement({
 
   return (
     <>
-      <PageHead title="Peran Pengguna" description="Kelola peran, pengguna, dan hak akses." />
+      <PageHead title="Peran Pengguna" description="Kelola perusahaan, peran, pengguna, dan hak akses." actions={<Button variant="primary" onClick={() => setCompanyOpen(true)}><Plus size={16} /> Buat perusahaan</Button>} />
       <div className="um-layout">
         <aside className="um-sidebar" onClick={() => { if (roleMenuOpen) setRoleMenuOpen(null); }}>
           <button className={`um-role-item ${selectedRole === "admin" ? "active" : ""}`} onClick={() => setSelectedRole("admin")}>
@@ -2396,6 +2441,16 @@ function UserManagement({
       {newRoleOpen && (
         <Modal title="Buat Role Baru" onClose={() => setNewRoleOpen(false)}>
           <NewRoleForm onClose={() => setNewRoleOpen(false)} notify={notify} />
+        </Modal>
+      )}
+      {companyOpen && (
+        <Modal title="Buat perusahaan" onClose={() => setCompanyOpen(false)}>
+          <form onSubmit={saveCompany} className="form-grid">
+            <p className="form-note full">Perusahaan menjadi batas data untuk device, sensor ID, user, dan telemetry.</p>
+            <label className="full">Nama perusahaan<input value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="PT DSTx Indonesia" required /></label>
+            <label className="full">Slug perusahaan<input value={companySlug} onChange={(event) => setCompanySlug(event.target.value.toLowerCase())} placeholder="dstx-indonesia" required /></label>
+            <div className="form-actions full"><Button onClick={() => setCompanyOpen(false)}>Batal</Button><Button type="submit" variant="primary" disabled={companySaving}>{companySaving ? "Membuat…" : "Buat perusahaan"}</Button></div>
+          </form>
         </Modal>
       )}
       {deleteConfirm && (
@@ -3131,7 +3186,6 @@ function AuthPage({
 }
 
 export default function App() {
-  useLiveData();
   const [path, go] = useRoute();
   const [theme, setThemeState] = useState<Theme>(
     () => (localStorage.getItem("agrivaid-theme") as Theme) || "system",
@@ -3149,10 +3203,22 @@ export default function App() {
     read("agrivaid-alerts", initialAlerts),
   );
   const [notice, setNotice] = useState<Notice | null>(null);
-  const refresh = () => {
-    setDevices(loadDevices());
+  const refresh = async () => {
+    try {
+      const [registeredDevices, registeredSensors] = await Promise.all([
+        listRegisteredDevices(),
+        listRegisteredSensors(),
+      ]);
+      setDevices(registeredDevices);
+      replaceRegisteredSensors(registeredSensors);
+    } catch (error) {
+      console.warn("Unable to load the device registry", error);
+      setDevices([]);
+      replaceRegisteredSensors([]);
+    }
     setAlerts(read("agrivaid-alerts", initialAlerts));
   };
+  useLiveData(devices);
   const notify = (text: string, kind: "error" | "success" = "success") => {
     setNotice({ text, kind });
     setTimeout(() => setNotice(null), 3600);
@@ -3183,6 +3249,7 @@ export default function App() {
           if (p) {
             setProfile(p);
             getUserPermissions(p.role).then(setPermissions);
+            void refresh();
           }
         });
       }
@@ -3194,6 +3261,7 @@ export default function App() {
           if (p) {
             setProfile(p);
             getUserPermissions(p.role).then(setPermissions);
+            void refresh();
           }
         });
       } else if (!localStorage.getItem("agrivaid-demo-session")) {

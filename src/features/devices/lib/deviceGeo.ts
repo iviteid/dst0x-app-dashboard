@@ -1,4 +1,4 @@
-import type { Device } from "./types";
+import type { Device } from "../../../shared/types/domain";
 
 type Kind = NonNullable<Device["kind"]>;
 type Position = { latitude: number; longitude: number };

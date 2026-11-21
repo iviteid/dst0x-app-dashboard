@@ -37,7 +37,9 @@ export const ALL_PERMISSIONS = [
   "devices.create",
   "devices.delete",
   "sensors.view",
+  "sensors.create",
   "sensors.edit",
+  "sensors.delete",
   "users.view",
   "users.edit",
   "users.create",
@@ -52,7 +54,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   admin: [...ALL_PERMISSIONS],
   manager: [
     "devices.view", "devices.edit", "devices.create",
-    "sensors.view", "sensors.edit",
+    "sensors.view", "sensors.create", "sensors.edit",
     "users.view",
     "settings.view", "settings.edit",
   ],

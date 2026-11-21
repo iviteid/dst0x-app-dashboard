@@ -1,14 +1,10 @@
-import type { Sensor, Telemetry } from "./types";
+import type { Sensor, Telemetry } from "../shared/types/domain";
 import { supabase } from "./supabase";
-import {
-  DEFAULT_SENSOR_CHANNELS,
-  type SensorChannelDefinition,
-} from "./sensorConfig";
+import type { SensorChannelDefinition } from "../shared/config/sensorChannels";
 
-const API_URL =
-  import.meta.env.VITE_SENSOR_API_URL ||
-  "https://api.dst0x.cloud/v1/sensor-records";
-const DEVICE_ID = import.meta.env.VITE_SENSOR_DEVICE_ID || "RSC-001";
+// This is an authenticated backend endpoint backed by MongoDB, not a MongoDB
+// connection string. Leave it unset until the ingestion/query API is deployed.
+const API_URL = import.meta.env.VITE_TELEMETRY_API_URL || "";
 const DEVICE_INTERVAL_URL = API_URL.replace(
   /\/sensor-records\/?$/,
   "/device-interval",
@@ -54,23 +50,6 @@ const RESERVED_FIELDS = new Set([
   "received_at",
 ]);
 
-function titleFromId(id: string) {
-  return id
-    .replace(/^[^-]+-/, "")
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function inferredChannel(id: string, deviceId: string): SensorChannelDefinition {
-  return {
-    id,
-    deviceId,
-    name: titleFromId(id),
-    type: id.toLowerCase().replaceAll("-", "_"),
-    unit: "",
-  };
-}
-
 function channelFromRow(row: SensorChannelRow): SensorChannelDefinition {
   return {
     id: row.sensor_id,
@@ -85,9 +64,6 @@ function channelFromRow(row: SensorChannelRow): SensorChannelDefinition {
 }
 
 async function loadSensorChannels(deviceId: string) {
-  const defaults = DEFAULT_SENSOR_CHANNELS.filter(
-    (channel) => channel.deviceId === deviceId,
-  );
   const { data, error } = await supabase
     .from("sensor_channels")
     .select(
@@ -99,52 +75,24 @@ async function loadSensorChannels(deviceId: string) {
 
   if (error) {
     if (!registryWarningShown) {
-      console.warn(
-        "Sensor registry is unavailable; using bundled channel configuration.",
-        error.message,
-      );
+      console.warn("Sensor registry is unavailable.", error.message);
       registryWarningShown = true;
     }
-    return defaults;
+    return [];
   }
 
-  const channels = new Map(defaults.map((channel) => [channel.id, channel]));
-  for (const row of (data ?? []) as SensorChannelRow[]) {
-    const channel = channelFromRow(row);
-    channels.set(channel.id, channel);
-  }
-  return [...channels.values()];
-}
-
-async function registerDiscoveredChannels(
-  channels: SensorChannelDefinition[],
-) {
-  if (!channels.length) return;
-  const rows = channels.map((channel) => ({
-    device_id: channel.deviceId,
-    sensor_id: channel.id,
-    name: channel.name,
-    sensor_type: channel.type,
-    unit: channel.unit,
-    min_value: channel.min ?? null,
-    max_value: channel.max ?? null,
-    decimal_places: channel.decimals ?? null,
-  }));
-  const { error } = await supabase
-    .from("sensor_channels")
-    .upsert(rows, {
-      onConflict: "device_id,sensor_id",
-      ignoreDuplicates: true,
-    });
-  if (error && !registryWarningShown) {
-    console.warn("Unable to register discovered sensor channels.", error.message);
-    registryWarningShown = true;
-  }
+  return (data ?? []).map((row) => channelFromRow(row as SensorChannelRow));
 }
 
 export async function saveSensorChannelConfiguration(sensor: Sensor) {
+  const { data: companyId, error: companyError } = await supabase.rpc(
+    "current_company_id",
+  );
+  if (companyError) throw companyError;
+  if (!companyId) throw new Error("Your account is not assigned to a company.");
   const { error } = await supabase.from("sensor_channels").upsert(
     {
+      company_id: companyId,
       device_id: sensor.deviceId,
       sensor_id: sensor.id,
       name: sensor.name,
@@ -168,14 +116,15 @@ function timestampOf(record: SensorRecord) {
   return `${record.received_at.replace(" ", "T")}Z`;
 }
 
-export async function fetchDeviceData(): Promise<{
+export async function fetchDeviceData(deviceId: string): Promise<{
   sensors: Sensor[];
   telemetry: Telemetry[];
   lastSeen?: string;
 } | null> {
   try {
+    if (!API_URL) return null;
     const url = new URL(API_URL);
-    url.searchParams.set("device_id", DEVICE_ID);
+    url.searchParams.set("device_id", deviceId);
     url.searchParams.set("limit", "500");
     url.searchParams.set("page", "1");
 
@@ -192,21 +141,8 @@ export async function fetchDeviceData(): Promise<{
     );
     const latest = records.at(-1);
     const latestTimestamp = latest ? timestampOf(latest) : "";
-    const configured = await loadSensorChannels(DEVICE_ID);
+    const configured = await loadSensorChannels(deviceId);
     const channels = new Map(configured.map((channel) => [channel.id, channel]));
-    const discovered: SensorChannelDefinition[] = [];
-
-    for (const record of records) {
-      for (const [id, value] of Object.entries(record)) {
-        if (RESERVED_FIELDS.has(id) || typeof value !== "number" || channels.has(id)) {
-          continue;
-        }
-        const channel = inferredChannel(id, DEVICE_ID);
-        channels.set(id, channel);
-        discovered.push(channel);
-      }
-    }
-    void registerDiscoveredChannels(discovered);
 
     const latestValues = new Map(
       latest
@@ -237,7 +173,7 @@ export async function fetchDeviceData(): Promise<{
         )
         .map(([sensorId, value]) => ({
           id: `${record.id}-${sensorId}`,
-          deviceId: DEVICE_ID,
+          deviceId,
           sensorId,
           timestamp,
           value: Number(value),
@@ -257,6 +193,7 @@ export async function fetchDeviceData(): Promise<{
 }
 
 export async function fetchDeviceInterval(deviceId: string): Promise<number> {
+  if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
   const url = new URL(DEVICE_INTERVAL_URL);
   url.searchParams.set("device_id", deviceId);
   const response = await fetch(url);
@@ -271,6 +208,7 @@ export async function updateDeviceInterval(
   deviceId: string,
   intervalSeconds: number,
 ): Promise<number> {
+  if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
   const response = await fetch(DEVICE_INTERVAL_URL, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

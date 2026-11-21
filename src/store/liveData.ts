@@ -1,5 +1,4 @@
-import type { Alert, Device, Farm, Sensor, Telemetry, Zone } from "./types";
-import { DEFAULT_SENSOR_CHANNELS, missingSensor } from "./sensorConfig";
+import type { Alert, Device, Farm, Sensor, Telemetry, Zone } from "../shared/types/domain";
 
 export let DEMO_NOW = new Date().toISOString();
 
@@ -25,31 +24,10 @@ export const zones: Zone[] = [
 const ago = (minutes: number) =>
   new Date(Date.now() - minutes * 60000).toISOString();
 
-export const initialDevices: Device[] = [
-  {
-    id: "RSC-001",
-    farmId: "pens",
-    zoneId: "pens-1",
-    name: "RSC 001",
-    model: "Remote Sensor Controller",
-    protocol: "HTTPS",
-    status: "online" as const,
-    lastSeen: ago(1),
-    lastTelemetry: ago(1),
-    voltage: 3.3,
-    signal: -44,
-    intervalSeconds: 300,
-    description: "Remote garden sensor connected through Cloudflare Tunnel",
-    tags: ["rsc", "garden", "live"],
-    kind: "soil" as const,
-    latitude: -7.2756,
-    longitude: 112.7946,
-  },
-];
-
-export let initialSensors: Sensor[] = DEFAULT_SENSOR_CHANNELS.map((channel) =>
-  missingSensor(channel),
-);
+// The dashboard intentionally starts empty. Devices and sensor IDs are created
+// by an administrator in Supabase before telemetry can be displayed.
+export const initialDevices: Device[] = [];
+export let initialSensors: Sensor[] = [];
 export let initialTelemetry: Telemetry[] = [];
 
 type DataListener = () => void;
@@ -78,6 +56,11 @@ export function updateLiveData(sensors: Sensor[], telemetry: Telemetry[], lastSe
       if (signal?.quality === "valid") d.signal = signal.value;
     }
   }
+  listeners.forEach((fn) => fn());
+}
+
+export function replaceRegisteredSensors(sensors: Sensor[]) {
+  initialSensors = sensors;
   listeners.forEach((fn) => fn());
 }
 
