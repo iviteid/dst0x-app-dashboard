@@ -4,6 +4,7 @@ import { supabase } from "./supabase";
 type DeviceRow = {
   id: string;
   company_id: string;
+  companies: { name: string }[] | { name: string } | null;
   name: string;
   model: string;
   protocol: string;
@@ -31,6 +32,9 @@ function deviceFromRow(row: DeviceRow): Device {
   return {
     id: row.id,
     companyId: row.company_id,
+    companyName: Array.isArray(row.companies)
+      ? row.companies[0]?.name
+      : row.companies?.name,
     farmId: DEFAULT_FARM_ID,
     zoneId: DEFAULT_ZONE_ID,
     name: row.name,
@@ -51,7 +55,7 @@ function deviceFromRow(row: DeviceRow): Device {
 export async function listRegisteredDevices(): Promise<Device[]> {
   const { data, error } = await supabase
     .from("devices")
-    .select("id, company_id, name, model, protocol, status, reporting_interval_seconds, description, tags, kind, latitude, longitude, updated_at")
+    .select("id, company_id, name, model, protocol, status, reporting_interval_seconds, description, tags, kind, latitude, longitude, updated_at, companies!devices_company_id_fkey(name)")
     .order("created_at", { ascending: true });
   if (error) throw error;
   return (data as DeviceRow[] | null ?? []).map(deviceFromRow);
@@ -83,7 +87,7 @@ export async function saveRegisteredDevice(device: Device): Promise<Device> {
       },
       { onConflict: "id" },
     )
-    .select("id, company_id, name, model, protocol, status, reporting_interval_seconds, description, tags, kind, latitude, longitude, updated_at")
+    .select("id, company_id, name, model, protocol, status, reporting_interval_seconds, description, tags, kind, latitude, longitude, updated_at, companies!devices_company_id_fkey(name)")
     .single();
   if (error) throw error;
   return deviceFromRow(data as DeviceRow);

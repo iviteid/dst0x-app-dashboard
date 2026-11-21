@@ -165,7 +165,7 @@ const sinceNow = (iso: string) => {
 const alertIcon = { critical: AlertTriangle, warning: Activity, information: Info };
 const isPublic = (p: string) =>
   ["/login", "/signup", "/forgot-password", "/reset-password"].includes(p);
-const deviceFarm = (d: Device) => d.companyId ?? "No company assigned";
+const deviceFarm = (d: Device) => d.companyName ?? "No company assigned";
 const timeShort = (s: string) => formatTime(s).replace(", 2026", "");
 const thresholds = (sensor: Sensor) =>
   sensor.type === "soil_moisture"
@@ -1116,7 +1116,7 @@ function DeviceTable({
                 <small>{d.id}</small>
               </td>
               <td>{d.model}</td>
-              <td>{d.companyId ?? "—"}</td>
+              <td>{d.companyName ?? "—"}</td>
               <td>
                 <Badge>{d.status}</Badge>
               </td>
@@ -1304,17 +1304,6 @@ function DeviceForm({
           onChange={(e) => change("model", e.target.value)}
           required
         />
-      </label>
-      <label>
-        Protocol
-        <select
-          value={form.protocol}
-          onChange={(e) => change("protocol", e.target.value)}
-        >
-          {["MQTT", "HTTP API", "RS485 / Modbus", "UART", "SDI-12"].map((x) => (
-            <option key={x}>{x}</option>
-          ))}
-        </select>
       </label>
       <label>
         Reporting interval (seconds)

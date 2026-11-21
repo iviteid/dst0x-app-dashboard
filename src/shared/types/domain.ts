@@ -17,6 +17,7 @@ export interface Zone {
 export interface Device {
   id: string;
   companyId?: string;
+  companyName?: string;
   farmId: string;
   zoneId: string;
   name: string;
