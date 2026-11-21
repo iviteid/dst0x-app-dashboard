@@ -11,7 +11,8 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-export type Role = "admin" | "manager" | "mandor" | "operator" | "asisten";
+export type Role = string;
+export type AppRole = { key: Role; label: string; is_system: boolean };
 
 export interface UserProfile {
   id: string;
@@ -29,7 +30,7 @@ export interface RolePermission {
   permission: string;
 }
 
-export const ROLE_LABELS: Record<Role, string> = {
+export const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
   manager: "Manager",
   mandor: "Mandor",
@@ -56,7 +57,7 @@ export const ALL_PERMISSIONS = [
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
 
-export const DEFAULT_ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   admin: [...ALL_PERMISSIONS],
   manager: [
     "devices.view", "devices.edit", "devices.create",
@@ -130,8 +131,29 @@ export async function getUserPermissions(role: Role): Promise<Permission[]> {
     .from("role_permissions")
     .select("permission")
     .eq("role", role);
-  if (error || !data?.length) return DEFAULT_ROLE_PERMISSIONS[role];
+  if (error || !data?.length) return DEFAULT_ROLE_PERMISSIONS[role] ?? [];
   return data.map((r) => r.permission as Permission);
+}
+
+export async function listRoles(): Promise<AppRole[]> {
+  const { data, error } = await supabase.from("app_roles").select("key, label, is_system").order("is_system", { ascending: false }).order("label");
+  if (error) throw error;
+  return (data ?? []) as AppRole[];
+}
+
+export async function createRole(key: string, label: string) {
+  const { error } = await supabase.from("app_roles").insert({ key, label, is_system: false });
+  if (error) throw error;
+}
+
+export async function updateRole(key: string, label: string) {
+  const { error } = await supabase.from("app_roles").update({ label }).eq("key", key).eq("is_system", false);
+  if (error) throw error;
+}
+
+export async function deleteRole(key: string) {
+  const { error } = await supabase.from("app_roles").delete().eq("key", key).eq("is_system", false);
+  if (error) throw error;
 }
 
 export async function listUsers(): Promise<UserProfile[]> {

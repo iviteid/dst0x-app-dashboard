@@ -81,7 +81,7 @@ import FirmwareOta from "../features/firmware/components/FirmwareOta";
 import DeviceMonitor from "../features/devices/components/DeviceMonitor";
 import { DeviceEventsTab } from "../features/devices/components/DeviceEvents";
 import { deviceKind, devicePosition, kindLabels } from "../features/devices/lib/deviceGeo";
-import { supabase, signIn, signUp, signOut, getCompanyName, getCurrentProfile, getUserPermissions, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
+import { supabase, signIn, signUp, signOut, createRole, deleteRole, getCompanyName, getCurrentProfile, getUserPermissions, listRoles, updateRole, type AppRole, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
 
 const POLL_INTERVAL = 30 * 1000;
 
@@ -2229,7 +2229,8 @@ function UserManagement({
   notify: (m: string, k?: "error" | "success") => void;
   profile: UserProfile | null;
 }) {
-  const allRoles: Role[] = ["admin", "manager", "mandor", "operator", "asisten"];
+  const [roles, setRoles] = useState<AppRole[]>([]);
+  const allRoles = roles.map((role) => role.key);
   const [selectedRole, setSelectedRole] = useState<Role>("admin");
   const [tab, setTab] = useState<"users" | "permissions">("users");
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -2243,10 +2244,10 @@ function UserManagement({
   const [companySlug, setCompanySlug] = useState("");
   const [companySaving, setCompanySaving] = useState(false);
 
-  const [matrix, setMatrix] = useState<Record<Role, Set<string>>>(() => {
+  const [matrix, setMatrix] = useState<Record<string, Set<string>>>(() => {
     const m: Record<string, Set<string>> = {};
     for (const r of allRoles) m[r] = new Set(DEFAULT_ROLE_PERMISSIONS[r]);
-    return m as Record<Role, Set<string>>;
+    return m;
   });
   const [permLoading, setPermLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -2267,9 +2268,22 @@ function UserManagement({
       for (const row of data) {
         if (m[row.role]) m[row.role].add(row.permission);
       }
-      setMatrix(m as Record<Role, Set<string>>);
+      setMatrix(m);
     }
     setPermLoading(false);
+  };
+
+  const loadRoles = async () => {
+    try {
+      const next = await listRoles();
+      next.forEach((role) => { ROLE_LABELS[role.key] = role.label; });
+      setRoles(next);
+      setMatrix((current) => {
+        const nextMatrix = { ...current };
+        next.forEach((role) => { nextMatrix[role.key] ??= new Set(DEFAULT_ROLE_PERMISSIONS[role.key] ?? []); });
+        return nextMatrix;
+      });
+    } catch (error) { notify(error instanceof Error ? error.message : "Gagal memuat role.", "error"); }
   };
 
   useEffect(() => {
@@ -2277,8 +2291,8 @@ function UserManagement({
       const saved = JSON.parse(localStorage.getItem("um-role-labels") || "{}");
       for (const k of Object.keys(saved)) if (k in ROLE_LABELS) (ROLE_LABELS as any)[k] = saved[k];
     } catch {}
+    void loadRoles().then(loadPermissions);
     loadUsers();
-    loadPermissions();
   }, []);
 
   const filteredUsers = users.filter(
@@ -2334,15 +2348,12 @@ function UserManagement({
   const [editRoleOpen, setEditRoleOpen] = useState<Role | null>(null);
   const [deleteRoleConfirm, setDeleteRoleConfirm] = useState<Role | null>(null);
   const [roleMenuOpen, setRoleMenuOpen] = useState<Role | null>(null);
-  const [hiddenRoles, setHiddenRoles] = useState<Role[]>(() => {
-    try { return JSON.parse(localStorage.getItem("um-hidden-roles") || "[]"); } catch { return []; }
-  });
-
-  const customRoles: Role[] = allRoles.filter(r => r !== "admin" && !hiddenRoles.includes(r));
+  const customRoles = roles.filter((role) => role.key !== "admin");
+  const hiddenRoles: Role[] = [];
 
   const handleDeleteRole = (r: Role) => {
     setRoleMenuOpen(null);
-    if (r === "admin") { notify("Role Admin tidak bisa dihapus.", "error"); return; }
+    if (roles.find((role) => role.key === r)?.is_system) { notify("Role bawaan tidak bisa dihapus.", "error"); return; }
     const count = userCountByRole(r);
     if (count > 0) {
       notify(`Role ${ROLE_LABELS[r]} masih digunakan oleh ${count} pengguna. Pindahkan pengguna ke role lain terlebih dahulu.`, "error");
@@ -2372,12 +2383,13 @@ function UserManagement({
 
   const confirmDeleteRole = () => {
     if (!deleteRoleConfirm) return;
-    const next = [...hiddenRoles, deleteRoleConfirm];
-    setHiddenRoles(next);
-    localStorage.setItem("um-hidden-roles", JSON.stringify(next));
-    if (selectedRole === deleteRoleConfirm) setSelectedRole("admin");
-    notify(`Role ${ROLE_LABELS[deleteRoleConfirm]} dihapus.`);
-    setDeleteRoleConfirm(null);
+    void deleteRole(deleteRoleConfirm).then(() => {
+      if (selectedRole === deleteRoleConfirm) setSelectedRole("admin");
+      notify(`Role ${ROLE_LABELS[deleteRoleConfirm]} dihapus.`);
+      setDeleteRoleConfirm(null);
+      void loadRoles();
+      void loadPermissions();
+    }).catch((error) => notify(error instanceof Error ? error.message : "Gagal menghapus role.", "error"));
   };
 
   return (
@@ -2390,20 +2402,20 @@ function UserManagement({
           </button>
           <div className="um-sidebar-divider" />
           <div className="um-sidebar-section">Custom Role</div>
-          {customRoles.length > 0 ? customRoles.map((r) => (
-            <div key={r} className="um-role-item-wrap">
-              <button className={`um-role-item ${selectedRole === r ? "active" : ""}`} onClick={() => setSelectedRole(r)}>
-                {ROLE_LABELS[r]}
+          {customRoles.length > 0 ? customRoles.map((role) => (
+            <div key={role.key} className="um-role-item-wrap">
+              <button className={`um-role-item ${selectedRole === role.key ? "active" : ""}`} onClick={() => setSelectedRole(role.key)}>
+                {role.label}
               </button>
-              <button className="um-role-menu-btn" onClick={(e) => { e.stopPropagation(); setRoleMenuOpen(roleMenuOpen === r ? null : r); }}>
+              {!role.is_system && <button className="um-role-menu-btn" onClick={(e) => { e.stopPropagation(); setRoleMenuOpen(roleMenuOpen === role.key ? null : role.key); }}>
                 <MoreHorizontal size={16} />
-              </button>
-              {roleMenuOpen === r && (
+              </button>}
+              {!role.is_system && roleMenuOpen === role.key && (
                 <div className="um-role-dropdown" onClick={e => e.stopPropagation()}>
-                  <button onClick={() => { setRoleMenuOpen(null); setEditRoleOpen(r); }}>
+                  <button onClick={() => { setRoleMenuOpen(null); setEditRoleOpen(role.key); }}>
                     <Pencil size={14} /> Edit
                   </button>
-                  <button className="um-dropdown-danger" onClick={() => handleDeleteRole(r)}>
+                  <button className="um-dropdown-danger" onClick={() => handleDeleteRole(role.key)}>
                     <Trash2 size={14} /> Hapus
                   </button>
                 </div>
@@ -2553,7 +2565,7 @@ function UserManagement({
       )}
       {newRoleOpen && (
         <Modal title="Buat Role Baru" onClose={() => setNewRoleOpen(false)}>
-          <NewRoleForm onClose={() => setNewRoleOpen(false)} notify={notify} />
+          <NewRoleForm onClose={() => setNewRoleOpen(false)} notify={notify} onSaved={loadRoles} />
         </Modal>
       )}
       {companyOpen && (
@@ -2600,14 +2612,24 @@ function UserManagement({
         </Modal>
       )}
       {editRoleOpen && (
-        <EditRoleModal role={editRoleOpen} onClose={() => setEditRoleOpen(null)} notify={notify} />
+        <EditRoleModal role={editRoleOpen} onClose={() => setEditRoleOpen(null)} notify={notify} onSaved={loadRoles} />
       )}
     </>
   );
 }
 
-function NewRoleForm({ onClose, notify }: { onClose: () => void; notify: (m: string, k?: "error" | "success") => void }) {
+function NewRoleForm({ onClose, notify, onSaved }: { onClose: () => void; notify: (m: string, k?: "error" | "success") => void; onSaved: () => Promise<void> }) {
   const [name, setName] = useState("");
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    const roleKey = key.trim().toLowerCase();
+    if (!name.trim() || !/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(roleKey)) { notify("Nama dan key role (huruf kecil, angka, underscore) wajib diisi.", "error"); return; }
+    setSaving(true);
+    try { await createRole(roleKey, name.trim()); await onSaved(); notify("Custom role dibuat."); onClose(); }
+    catch (error) { notify(error instanceof Error ? error.message : "Gagal membuat custom role.", "error"); }
+    finally { setSaving(false); }
+  };
   return (
     <>
       <div className="modal-body">
@@ -2619,23 +2641,22 @@ function NewRoleForm({ onClose, notify }: { onClose: () => void; notify: (m: str
           Nama Role <span style={{ color: "var(--danger)" }}>*</span>
           <input className="ch-edit-input" value={name} onChange={e => setName(e.target.value)} placeholder="Masukkan Nama Role" />
         </label>
+        <label className="modal-label">Key role <input className="ch-edit-input" value={key} onChange={e => setKey(e.target.value.toLowerCase())} placeholder="field_supervisor" /></label>
       </div>
       <div className="modal-footer">
         <Button onClick={onClose}>Batal</Button>
-        <Button variant="primary" disabled={!name.trim()} onClick={() => { notify("Custom role belum didukung oleh database.", "error"); }}>Simpan</Button>
+        <Button variant="primary" disabled={!name.trim() || !key.trim() || saving} onClick={save}>{saving ? "Menyimpan…" : "Simpan"}</Button>
       </div>
     </>
   );
 }
 
-function EditRoleModal({ role, onClose, notify }: { role: Role; onClose: () => void; notify: (m: string, k?: "error" | "success") => void }) {
+function EditRoleModal({ role, onClose, notify, onSaved }: { role: Role; onClose: () => void; notify: (m: string, k?: "error" | "success") => void; onSaved: () => Promise<void> }) {
   const [name, setName] = useState(ROLE_LABELS[role]);
-  const save = () => {
+  const save = async () => {
     if (!name.trim()) { notify("Nama role wajib diisi.", "error"); return; }
-    ROLE_LABELS[role] = name.trim();
-    localStorage.setItem("um-role-labels", JSON.stringify(ROLE_LABELS));
-    notify(`Role diperbarui menjadi "${name.trim()}".`);
-    onClose();
+    try { await updateRole(role, name.trim()); await onSaved(); notify(`Role diperbarui menjadi "${name.trim()}".`); onClose(); }
+    catch (error) { notify(error instanceof Error ? error.message : "Gagal memperbarui role.", "error"); }
   };
   return (
     <Modal title="Edit Role" onClose={onClose}>
