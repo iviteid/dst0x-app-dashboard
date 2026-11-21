@@ -19,6 +19,7 @@ export interface UserProfile {
   full_name: string;
   role: Role;
   is_active: boolean;
+  company_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -111,6 +112,17 @@ export async function getCurrentProfile(): Promise<UserProfile | null> {
     .single();
   if (error || !data) return null;
   return data as UserProfile;
+}
+
+export async function getCompanyName(companyId: string | null): Promise<string | null> {
+  if (!companyId) return null;
+  const { data, error } = await supabase
+    .from("companies")
+    .select("name")
+    .eq("id", companyId)
+    .single();
+  if (error || !data) return null;
+  return data.name as string;
 }
 
 export async function getUserPermissions(role: Role): Promise<Permission[]> {

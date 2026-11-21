@@ -80,7 +80,7 @@ import FirmwareOta from "../features/firmware/components/FirmwareOta";
 import DeviceMonitor from "../features/devices/components/DeviceMonitor";
 import { DeviceEventsTab } from "../features/devices/components/DeviceEvents";
 import { deviceKind, devicePosition, kindLabels, zoneCenters } from "../features/devices/lib/deviceGeo";
-import { supabase, signIn, signUp, signOut, getCurrentProfile, getUserPermissions, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
+import { supabase, signIn, signUp, signOut, getCompanyName, getCurrentProfile, getUserPermissions, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
 
 const POLL_INTERVAL = 30 * 1000;
 
@@ -1958,6 +1958,14 @@ function Profile({
   const [timezone, setTimezone] = useState(
     read("agrivaid-timezone", "Asia/Jakarta"),
   );
+  const [companyName, setCompanyName] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    void getCompanyName(profile?.company_id ?? null).then((name) => {
+      if (active) setCompanyName(name);
+    });
+    return () => { active = false; };
+  }, [profile?.company_id]);
   const save = async () => {
     if (!name.trim()) {
       notify("Full name is required.", "error");
@@ -1982,7 +1990,7 @@ function Profile({
     <>
       <PageHead
         title="User Profile"
-        description="Manage your demo identity and display preferences."
+        description="Manage your account identity and display preferences."
         actions={
           <Button variant="primary" onClick={save}>
             Save changes
@@ -1999,7 +2007,7 @@ function Profile({
             <span className="avatar large">{profile ? profile.full_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() : "AM"}</span>
             <div>
               <b>{name}</b>
-              <span>{profile ? `${ROLE_LABELS[profile.role]} · DSTx` : "Demo administrator · DSTx"}</span>
+              <span>{profile ? `${ROLE_LABELS[profile.role]} · ${companyName ?? "No company assigned"}` : "Demo administrator · DSTx"}</span>
             </div>
           </div>
           <div className="form-grid">
@@ -2017,7 +2025,7 @@ function Profile({
             </label>
             <label>
               Organization
-              <input value="DSTx IoT Workspace" disabled />
+              <input value={companyName ?? "No company assigned"} disabled />
             </label>
           </div>
         </Card>
@@ -2072,11 +2080,11 @@ function Profile({
             </div>
             <div>
               <span>Session management</span>
-              <b>Browser local demo session</b>
+              <b>{profile ? "Supabase Auth session" : "Browser local demo session"}</b>
             </div>
             <div>
               <span>Account creation date</span>
-              <b>Not available</b>
+              <b>{profile ? formatTime(profile.created_at) : "Not available"}</b>
             </div>
           </div>
         </Card>
