@@ -9,8 +9,8 @@ const DEVICE_INTERVAL_URL = API_URL.replace(
   "/device-interval",
 );
 
-function apiHeaders(): HeadersInit {
-  return API_KEY ? { "x-api-key": API_KEY } : {};
+function addApiKey(url: URL): void {
+  if (API_KEY) url.searchParams.set("api_key", API_KEY);
 }
 
 type SensorRecord = {
@@ -131,8 +131,9 @@ export async function fetchDeviceData(deviceId: string): Promise<{
     url.searchParams.set("device_id", deviceId);
     url.searchParams.set("limit", "500");
     url.searchParams.set("page", "1");
+    addApiKey(url);
 
-    const response = await fetch(url, { headers: apiHeaders() });
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Sensor API returned ${response.status}`);
     }
@@ -200,7 +201,8 @@ export async function fetchDeviceInterval(deviceId: string): Promise<number> {
   if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
   const url = new URL(DEVICE_INTERVAL_URL);
   url.searchParams.set("device_id", deviceId);
-  const response = await fetch(url, { headers: apiHeaders() });
+  addApiKey(url);
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Unable to load interval (${response.status})`);
   }
@@ -215,7 +217,7 @@ export async function updateDeviceInterval(
   if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
   const response = await fetch(DEVICE_INTERVAL_URL, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", ...apiHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       device_id: deviceId,
       interval_seconds: intervalSeconds,
