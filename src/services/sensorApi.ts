@@ -2,13 +2,16 @@ import type { Sensor, Telemetry } from "../shared/types/domain";
 import { supabase } from "./supabase";
 import type { SensorChannelDefinition } from "../shared/config/sensorChannels";
 
-// This is an authenticated backend endpoint backed by MongoDB, not a MongoDB
-// connection string. Leave it unset until the ingestion/query API is deployed.
 const API_URL = import.meta.env.VITE_TELEMETRY_API_URL || "";
+const API_KEY = import.meta.env.VITE_TELEMETRY_API_KEY || "";
 const DEVICE_INTERVAL_URL = API_URL.replace(
   /\/sensor-records\/?$/,
   "/device-interval",
 );
+
+function apiHeaders(): HeadersInit {
+  return API_KEY ? { "x-api-key": API_KEY } : {};
+}
 
 type SensorRecord = {
   id: number;
@@ -129,7 +132,7 @@ export async function fetchDeviceData(deviceId: string): Promise<{
     url.searchParams.set("limit", "500");
     url.searchParams.set("page", "1");
 
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: apiHeaders() });
     if (!response.ok) {
       throw new Error(`Sensor API returned ${response.status}`);
     }
@@ -197,7 +200,7 @@ export async function fetchDeviceInterval(deviceId: string): Promise<number> {
   if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
   const url = new URL(DEVICE_INTERVAL_URL);
   url.searchParams.set("device_id", deviceId);
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: apiHeaders() });
   if (!response.ok) {
     throw new Error(`Unable to load interval (${response.status})`);
   }
@@ -212,7 +215,7 @@ export async function updateDeviceInterval(
   if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
   const response = await fetch(DEVICE_INTERVAL_URL, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...apiHeaders() },
     body: JSON.stringify({
       device_id: deviceId,
       interval_seconds: intervalSeconds,
