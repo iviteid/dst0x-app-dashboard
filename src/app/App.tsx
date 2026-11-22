@@ -159,7 +159,6 @@ const iconMap = {
 const nav: [string, string][] = [
   ["dashboard", "Overview"],
   ["devices", "Devices"],
-  ["firmware-ota", "Firmware OTA"],
   ["company", "Company"],
 ];
 const badge = (text: string) =>
