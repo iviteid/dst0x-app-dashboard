@@ -23,6 +23,7 @@ export interface UserProfile {
   company_id: string | null;
   created_at: string;
   updated_at: string;
+  companies?: { name: string } | { name: string }[] | null;
 }
 
 export interface RolePermission {

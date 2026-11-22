@@ -37,4 +37,4 @@ db.sensor_readings.createIndex(
 2. Derive `companyId` server-side from the registered device; do not trust a value supplied by hardware.
 3. Deduplicate with a unique key such as `{ deviceId, sensorId, sequence }`, or `{ deviceId, sensorId, timestamp }` when no sequence exists.
 4. Store device time and receive time separately when clock drift matters.
-5. Query telemetry through an authenticated API scoped to `companyId`; do not expose MongoDB to the browser.
+5. Query telemetry through an authenticated API scoped to `companyId`; do not expose MongoDB to the browser. The API must derive the caller's allowed company from the validated Supabase JWT/profile, ignore client-supplied company IDs for ordinary users, and allow cross-company queries only for the admin role.

@@ -2244,7 +2244,7 @@ function UserManagement({
 
   const loadUsers = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from("user_profiles").select("*").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("user_profiles").select("*, companies(name)").order("created_at", { ascending: false });
     if (error) notify(error.message, "error");
     else setUsers((data ?? []) as UserProfile[]);
     setLoading(false);
@@ -2432,19 +2432,21 @@ function UserManagement({
                     <tr>
                       <th>Nama</th>
                       <th>Email</th>
+                      <th>Company</th>
                       <th>Verified</th>
                       <th>Aksi</th>
                     </tr>
                   </thead>
                   <tbody>
                     {loading ? (
-                      <tr><td colSpan={4} style={{ padding: "2rem", textAlign: "center", opacity: 0.5 }}>Memuat...</td></tr>
+                      <tr><td colSpan={5} style={{ padding: "2rem", textAlign: "center", opacity: 0.5 }}>Memuat...</td></tr>
                     ) : filteredUsers.length === 0 ? (
-                      <tr><td colSpan={4} style={{ padding: "2rem", textAlign: "center", opacity: 0.5 }}>Tidak ada pengguna dengan role ini.</td></tr>
+                      <tr><td colSpan={5} style={{ padding: "2rem", textAlign: "center", opacity: 0.5 }}>Tidak ada pengguna dengan role ini.</td></tr>
                     ) : filteredUsers.map((u) => (
                       <tr key={u.id}>
                         <td>{u.full_name}</td>
                         <td>{u.email}</td>
+                        <td>{Array.isArray(u.companies) ? u.companies[0]?.name ?? "—" : u.companies?.name ?? "—"}</td>
                         <td>
                           <span className={`um-verified ${u.is_active ? "yes" : "no"}`}>
                             {u.is_active ? <Check size={14} /> : <X size={14} />}
@@ -2643,14 +2645,20 @@ function EditRoleModal({ role, onClose, notify, onSaved }: { role: Role; onClose
 function UserEditModal({ user, onClose, notify, onSave, hiddenRoles = [] }: { user: UserProfile; onClose: () => void; notify: (m: string, k?: "error" | "success") => void; onSave: () => void; hiddenRoles?: Role[] }) {
   const [name, setName] = useState(user.full_name);
   const [role, setRole] = useState<Role>(user.role);
+  const [companyId, setCompanyId] = useState(user.company_id ?? "");
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [active, setActive] = useState(user.is_active);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void listCompanies().then(setCompanies).catch(() => setCompanies([]));
+  }, []);
 
   const save = async () => {
     if (!name.trim()) { notify("Nama wajib diisi.", "error"); return; }
     setBusy(true);
     const { error } = await supabase.from("user_profiles").update({
-      full_name: name.trim(), role, is_active: active, updated_at: new Date().toISOString(),
+      full_name: name.trim(), role, company_id: companyId || null, is_active: active, updated_at: new Date().toISOString(),
     }).eq("id", user.id);
     setBusy(false);
     if (error) notify(error.message, "error");
@@ -2665,6 +2673,12 @@ function UserEditModal({ user, onClose, notify, onSave, hiddenRoles = [] }: { us
         <label className="modal-label">Role
           <select className="ch-edit-input" value={role} onChange={e => setRole(e.target.value as Role)}>
             {(Object.entries(ROLE_LABELS) as [Role, string][]).filter(([v]) => !hiddenRoles.includes(v)).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        <label className="modal-label">Company
+          <select className="ch-edit-input" value={companyId} onChange={e => setCompanyId(e.target.value)}>
+            <option value="">No company assigned</option>
+            {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
           </select>
         </label>
         <label className="modal-label" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
