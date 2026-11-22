@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -504,7 +504,7 @@ export default function DeviceMonitor({
         <div className="monitor-chart">
           {rows.length && chosen.length ? (
             <ResponsiveContainer width="100%" height={full ? 440 : 330}>
-              <LineChart
+              <ComposedChart
                 data={rows}
                 margin={{ top: 10, right: 24, bottom: 4, left: 4 }}
               >
@@ -597,7 +597,7 @@ export default function DeviceMonitor({
                     connectNulls={false}
                   />
                 ))}
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
           ) : (
             <p className="monitor-empty">

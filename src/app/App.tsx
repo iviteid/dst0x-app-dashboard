@@ -3,8 +3,8 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -584,7 +584,7 @@ function TrendChart({
   return (
     <div className="chart-wrap">
       <ResponsiveContainer width="100%" height={280}>
-        <LineChart
+        <ComposedChart
           data={data}
           margin={{ top: 8, right: 14, bottom: 4, left: 0 }}
         >
@@ -663,7 +663,7 @@ function TrendChart({
             connectNulls={false}
             name="Selected period"
           />
-        </LineChart>
+        </ComposedChart>
       </ResponsiveContainer>
       <div className="chart-footer">
         <span>Device: {device.name}</span>
