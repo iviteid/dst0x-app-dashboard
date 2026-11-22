@@ -2474,9 +2474,14 @@ td.number {
   background: var(--bg);
 }
 .monitor-id,
-.monitor-body,
 .monitor-table-card {
   background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.monitor-body {
+  background: #fff;
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow);

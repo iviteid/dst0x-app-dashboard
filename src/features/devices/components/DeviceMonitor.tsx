@@ -254,7 +254,6 @@ export default function DeviceMonitor({
     <div className={`monitor ${full ? "monitor-full" : ""}`}>
       <div className="monitor-id">
         <div className="monitor-name">{device.name}</div>
-        <span className={`monitor-state ${device.status}`}>{device.status}</span>
         <small>{device.id}</small>
         <button
           className="monitor-icon"
