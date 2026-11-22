@@ -820,7 +820,7 @@ function AppShell({
     (/\/devices\//.test(path)
       ? "Device Detail"
       : path === "/profile" || path === "/settings"
-        ? "User Profile"
+        ? "Settings"
         : "Settings");
   return (
     <div className="app-shell">
@@ -1951,7 +1951,7 @@ function Profile({
   return (
     <>
       <PageHead
-        title="User Profile"
+        title="Settings"
         description="Manage your account identity and display preferences."
         actions={
           <Button variant="primary" onClick={save}>
