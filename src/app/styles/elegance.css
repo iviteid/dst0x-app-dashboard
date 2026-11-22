@@ -101,7 +101,7 @@ input:not([type="checkbox"]):not([type="radio"]):hover, select:hover { border-co
 .sc-section { --reading-green: #F2491F; }
 :root[data-theme="dark"] .sc-section { --reading-green: #F2491F; }
 .sc-wrapper { position: relative; display: block; }
-.sc-track { gap: 0; padding: 24px max(14px, calc(50% - 152px)) 27px; align-items: center; }
+.sc-track { gap: 0; padding: 24px max(14px, calc(50% - 152px)) 27px; align-items: center; scroll-snap-type: x proximity; scroll-behavior: smooth; }
 .sc-card {
   width: 304px;
   height: 304px;
@@ -113,8 +113,10 @@ input:not([type="checkbox"]):not([type="radio"]):hover, select:hover { border-co
   box-shadow: 0 3px 8px rgba(21, 47, 69, .11);
   opacity: .88;
   z-index: 1;
+  transition: transform .45s cubic-bezier(.22, 1, .36, 1), opacity .45s ease, box-shadow .45s ease, height .45s cubic-bezier(.22, 1, .36, 1), border-color .3s ease;
+  will-change: transform, opacity;
 }
-.sc-card-inner { height: 100%; padding: 23px 24px 21px; gap: 0; }
+.sc-card-inner { height: 100%; padding: 23px 24px 21px; gap: 0; transition: transform .45s cubic-bezier(.22, 1, .36, 1); }
 .sc-card:hover { transform: translateY(-3px); opacity: 1; box-shadow: 0 8px 22px rgba(21, 47, 69, .13); }
 .sc-card.sc-active {
   width: 304px;
@@ -138,9 +140,9 @@ input:not([type="checkbox"]):not([type="radio"]):hover, select:hover { border-co
 .sc-range.sc-range-warn { color: var(--danger); }
 .sc-id, .sc-id.sc-id-active { margin-top: 10px; font-size: 12px; color: var(--muted); font-weight: 600; }
 .sc-id.sc-id-active { color: var(--primary-hover); }
-.sc-arrow { position: absolute; top: 50%; width: 36px; height: 36px; z-index: 12; border-color: #cbd9e5; color: #90a5bc; box-shadow: none; transform: translateY(-50%); }
-.sc-arrow-left { left: calc(50% - 141px); }
-.sc-arrow-right { right: calc(50% - 141px); }
+.sc-arrow { position: absolute; top: 50%; width: 36px; height: 36px; z-index: 12; border-color: #cbd9e5; color: #90a5bc; box-shadow: none; transform: translateY(-50%); transition: transform .25s ease, opacity .25s ease, background-color .25s ease, color .25s ease; }
+.sc-arrow-left { left: calc(50% - 185px); }
+.sc-arrow-right { right: calc(50% - 185px); }
 .sc-arrow:hover:not(:disabled) { transform: translateY(-50%) scale(1.07); background: var(--primary-soft); color: var(--primary); }
 .sc-arrow:disabled { opacity: .35; cursor: not-allowed; }
 .map-full-heading { padding: 18px 22px; }
@@ -397,8 +399,8 @@ table tbody tr:hover { background: var(--bg-alt); }
   .sc-card-inner { padding: 20px 18px 18px; }
   .sc-sensor-name, .sc-active .sc-sensor-name { font-size: 14px; }
   .sc-value, .sc-active .sc-value { font-size: 40px; }
-  .sc-arrow-left { left: calc(50% - 108px); }
-  .sc-arrow-right { right: calc(50% - 108px); }
+  .sc-arrow-left { left: calc(50% - 148px); }
+  .sc-arrow-right { right: calc(50% - 148px); }
   .map-full-heading { padding: 15px; }
   .padded { padding: 17px; }
   .auth-main { padding: 18px 14px; }

@@ -970,6 +970,7 @@ function SensorCarousel({ devices, go, updatedSensorIds }: { devices: Device[]; 
   const deviceKey = devices.map((d) => d.id).join(",");
   const scrollRef = useRef<HTMLDivElement>(null);
   const programmatic = useRef(false);
+  const scrollEnd = useRef<number | undefined>(undefined);
   const [active, setActive] = useState(1);
   useEffect(() => {
     const el = scrollRef.current;
@@ -996,17 +997,22 @@ function SensorCarousel({ devices, go, updatedSensorIds }: { devices: Device[]; 
   };
   const onScroll = () => {
     if (programmatic.current) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const cards = el.querySelectorAll(".sc-card");
-    const center = el.scrollLeft + el.offsetWidth / 2;
-    let closest = 0;
-    let minDist = Infinity;
-    cards.forEach((c, i) => {
-      const dist = Math.abs((c as HTMLElement).offsetLeft + (c as HTMLElement).offsetWidth / 2 - center);
-      if (dist < minDist) { minDist = dist; closest = i; }
-    });
-    setActive(closest);
+    // Wait until the scroll settles before switching the active card,
+    // so the grow/shrink animation does not fight the scroll itself.
+    window.clearTimeout(scrollEnd.current);
+    scrollEnd.current = window.setTimeout(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const cards = el.querySelectorAll(".sc-card");
+      const center = el.scrollLeft + el.offsetWidth / 2;
+      let closest = 0;
+      let minDist = Infinity;
+      cards.forEach((c, i) => {
+        const dist = Math.abs((c as HTMLElement).offsetLeft + (c as HTMLElement).offsetWidth / 2 - center);
+        if (dist < minDist) { minDist = dist; closest = i; }
+      });
+      setActive(closest);
+    }, 120);
   };
   const inRange = (s: Sensor) => {
     if (s.quality === "missing") return false;
