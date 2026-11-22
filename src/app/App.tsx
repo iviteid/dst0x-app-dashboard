@@ -2056,6 +2056,7 @@ function CompanyPage({
 }) {
   const [company, setCompany] = useState<Company | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -2121,6 +2122,7 @@ function CompanyPage({
         : await createCompany(cleanName, cleanSlug).then((created) => updateCompany(created.id, details));
       setCompany(next);
       setCreating(false);
+      setEditorOpen(false);
       setCompanies(await listCompanies());
       await onCompanyChanged();
       notify(!creating && company ? "Company updated." : "Company created.");
@@ -2152,10 +2154,10 @@ function CompanyPage({
     <PageHead
       title="Company"
       description="Manage the company that owns users, devices, sensor IDs, and telemetry access."
-      actions={canManage ? <Button variant="primary" onClick={() => { setCreating(true); setCompany(null); setName(""); setSlug(""); setCompanyProfile(""); setAddress(""); setCommodity(""); setCompanyNumber(""); setLocation(""); setEmail(""); }}><Plus size={16} /> New Company</Button> : undefined}
+      actions={canManage ? <Button variant="primary" onClick={() => { setCreating(true); setEditorOpen(true); setCompany(null); setName(""); setSlug(""); setCompanyProfile(""); setAddress(""); setCommodity(""); setCompanyNumber(""); setLocation(""); setEmail(""); }}><Plus size={16} /> New Company</Button> : undefined}
     />
     <div className="settings-stack company-page">
-      <Card className="padded company-detail-card">
+      {editorOpen && <Modal title={creating ? "New Company" : "Edit Company"} onClose={() => setEditorOpen(false)}><Card className="padded company-detail-card">
         {!creating && company ? (
           <div className="company-hero">
             <div className="company-monogram" aria-hidden="true">{company.name.slice(0, 2).toUpperCase()}</div>
@@ -2183,14 +2185,14 @@ function CompanyPage({
             <label className="full">Address<textarea value={address} onChange={(event) => setAddress(event.target.value)} disabled={!canManage || saving} placeholder="Full company address" rows={3} /></label>
             {!creating && company && <div className="company-audit full"><span><b>Company ID</b><code>{company.id}</code></span><span><b>Created</b>{formatTime(company.created_at)}</span></div>}
             {!canManage && <p className="hint full">Only a company administrator can create or edit this record.</p>}
-            {canManage && <div className="form-actions full">{creating && <Button onClick={() => { setCreating(false); void getCompany(profile?.company_id ?? "").then((current) => { setCompany(current); setName(current?.name ?? ""); setSlug(current?.slug ?? ""); setCompanyProfile(current?.profile ?? ""); setAddress(current?.address ?? ""); setCommodity(current?.commodity ?? ""); setCompanyNumber(current?.company_number ?? ""); setLocation(current?.location ?? ""); setEmail(current?.email ?? ""); }); }}>Cancel</Button>}<Button variant="primary" type="submit" disabled={saving}>{saving ? "Saving…" : !creating && company ? "Save company" : "Create company"}</Button></div>}
+            {canManage && <div className="form-actions full"><Button onClick={() => setEditorOpen(false)}>Cancel</Button><Button variant="primary" type="submit" disabled={saving}>{saving ? "Saving…" : !creating && company ? "Save company" : "Create company"}</Button></div>}
           </form>
         )}
-      </Card>
+      </Card></Modal>}
       {canManage && <Card className="padded">
         <PanelHead title="All companies" detail={`${companies.length} registered companies`} />
         {companies.length ? <div className="table-scroll"><table><thead><tr><th>Company</th><th>Slug</th><th>Created</th><th>Action</th></tr></thead><tbody>
-          {companies.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.id}</small></td><td>{item.slug}</td><td>{formatTime(item.created_at)}</td><td><div className="table-actions"><button className="text-action" onClick={() => { setCreating(false); setCompany(item); setName(item.name); setSlug(item.slug); setCompanyProfile(item.profile); setAddress(item.address); setCommodity(item.commodity); setCompanyNumber(item.company_number); setLocation(item.location); setEmail(item.email); }}>Edit</button><button className="text-action danger" onClick={() => void removeCompany(item)}>Delete</button></div></td></tr>)}
+          {companies.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.id}</small></td><td>{item.slug}</td><td>{formatTime(item.created_at)}</td><td><div className="table-actions"><button className="text-action" onClick={() => { setCreating(false); setEditorOpen(true); setCompany(item); setName(item.name); setSlug(item.slug); setCompanyProfile(item.profile); setAddress(item.address); setCommodity(item.commodity); setCompanyNumber(item.company_number); setLocation(item.location); setEmail(item.email); }}>Edit</button><button className="text-action danger" onClick={() => void removeCompany(item)}>Delete</button></div></td></tr>)}
         </tbody></table></div> : <Empty title="No companies" detail="Create the first company to begin registering devices." />}
       </Card>}
     </div>
