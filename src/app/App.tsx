@@ -2154,14 +2154,18 @@ function CompanyPage({
       description="Manage the company that owns users, devices, sensor IDs, and telemetry access."
       actions={canManage ? <Button variant="primary" onClick={() => { setCreating(true); setCompany(null); setName(""); setSlug(""); setCompanyProfile(""); setAddress(""); setCommodity(""); setCompanyNumber(""); setLocation(""); setEmail(""); }}><Plus size={16} /> New Company</Button> : undefined}
     />
-    <div className="settings-stack">
-      <Card className="padded">
-        <PanelHead
-          title={!creating && company ? "Company details" : "Create new company"}
-          detail={!creating && company ? "This is the current data-access boundary." : "Create a company before registering devices and sensor IDs."}
-        />
+    <div className="settings-stack company-page">
+      <Card className="padded company-detail-card">
+        {!creating && company ? (
+          <div className="company-hero">
+            <div className="company-monogram" aria-hidden="true">{company.name.slice(0, 2).toUpperCase()}</div>
+            <div className="company-hero-copy"><span>COMPANY WORKSPACE</span><h2>{company.name}</h2><p>{company.profile || "Complete the company profile to give your team useful context."}</p></div>
+            <div className="company-hero-meta"><span>{company.commodity || "No commodity"}</span><span>{company.location || "Location pending"}</span></div>
+          </div>
+        ) : <PanelHead title="Create new company" detail="Create a company before registering devices and sensor IDs." />}
         {loading ? <p className="muted">Loading company…</p> : (
-          <form onSubmit={save} className="form-grid">
+          <form onSubmit={save} className="form-grid company-form">
+            <div className="company-form-section full"><div><h3>Identity</h3><p>Core details used across the workspace.</p></div></div>
             <label>
               Company name
               <input value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage || saving} required />
@@ -2171,12 +2175,13 @@ function CompanyPage({
               <input value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase())} placeholder="dstx-indonesia" disabled={!canManage || saving} required />
             </label>
             <label className="full">Company profile<textarea value={companyProfile} onChange={(event) => setCompanyProfile(event.target.value)} disabled={!canManage || saving} placeholder="Brief company profile" rows={3} /></label>
+            <div className="company-form-section full"><div><h3>Contact & location</h3><p>Details for team and operational reference.</p></div></div>
             <label>Company email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={!canManage || saving} placeholder="company@example.com" /></label>
             <label>Company number<input value={companyNumber} onChange={(event) => setCompanyNumber(event.target.value)} disabled={!canManage || saving} placeholder="Phone or registration number" /></label>
             <label>Location<input value={location} onChange={(event) => setLocation(event.target.value)} disabled={!canManage || saving} placeholder="City, province, country" /></label>
             <label>Commodity<input value={commodity} onChange={(event) => setCommodity(event.target.value)} disabled={!canManage || saving} placeholder="e.g. Coffee, rice" /></label>
             <label className="full">Address<textarea value={address} onChange={(event) => setAddress(event.target.value)} disabled={!canManage || saving} placeholder="Full company address" rows={3} /></label>
-            {!creating && company && <div className="key-values full"><div><span>Company ID</span><b>{company.id}</b></div><div><span>Created</span><b>{formatTime(company.created_at)}</b></div></div>}
+            {!creating && company && <div className="company-audit full"><span><b>Company ID</b><code>{company.id}</code></span><span><b>Created</b>{formatTime(company.created_at)}</span></div>}
             {!canManage && <p className="hint full">Only a company administrator can create or edit this record.</p>}
             {canManage && <div className="form-actions full">{creating && <Button onClick={() => { setCreating(false); void getCompany(profile?.company_id ?? "").then((current) => { setCompany(current); setName(current?.name ?? ""); setSlug(current?.slug ?? ""); setCompanyProfile(current?.profile ?? ""); setAddress(current?.address ?? ""); setCommodity(current?.commodity ?? ""); setCompanyNumber(current?.company_number ?? ""); setLocation(current?.location ?? ""); setEmail(current?.email ?? ""); }); }}>Cancel</Button>}<Button variant="primary" type="submit" disabled={saving}>{saving ? "Saving…" : !creating && company ? "Save company" : "Create company"}</Button></div>}
           </form>
