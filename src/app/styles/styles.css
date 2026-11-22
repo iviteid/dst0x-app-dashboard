@@ -648,7 +648,7 @@ small {
   border-color: var(--primary);
 }
 :root[data-theme="dark"] .btn.primary {
-  color: #102216;
+  color: #fff;
 }
 .btn.primary:hover {
   background: var(--primary-hover);

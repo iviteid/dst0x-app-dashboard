@@ -76,9 +76,9 @@ input:not([type="checkbox"]):not([type="radio"]):hover, select:hover { border-co
 .app-footer { opacity: .82; }
 .btn { min-height: 40px; height: auto; padding: 9px 15px; border-radius: 10px; font-weight: 600; box-shadow: 0 2px 6px rgba(18, 64, 85, .035); }
 .btn:hover:not(:disabled) { transform: translateY(-1px); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); box-shadow: 0 6px 16px rgba(20, 81, 110, .11); }
-.btn.primary { background: #F2491F; border-color: #F2491F; color: #0f1a2e; }
+.btn.primary { background: #F2491F; border-color: #F2491F; color: #fff; }
 .btn.primary:hover:not(:disabled) { background: #e3411c; }
-:root[data-theme="dark"] .btn.primary { color: #0f1a2e; }
+:root[data-theme="dark"] .btn.primary { color: #fff; }
 .card, .stat-card, .sensor-card, .map-full { border-color: var(--border); border-radius: 18px; box-shadow: var(--shadow); }
 .padded { padding: 24px; }
 .panel-head h2 { font-size: 18px; letter-spacing: -.025em; }
