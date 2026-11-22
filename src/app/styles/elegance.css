@@ -153,8 +153,8 @@ table tbody tr:hover { background: var(--bg-alt); }
 .form-grid { gap: 15px; }
 
 /* Company management */
-.company-page { max-width: 1120px; }
-.company-modal { width: min(960px, calc(100vw - 64px)); max-height: min(88vh, 900px); padding: 22px; }
+.company-page { width: 100%; max-width: none; }
+.company-modal { width: min(1180px, calc(100vw - 72px)); max-height: calc(100vh - 28px); padding: 22px; }
 .company-detail-card { overflow: hidden; }
 .company-hero {
   display: grid;
