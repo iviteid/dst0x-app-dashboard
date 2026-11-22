@@ -472,10 +472,12 @@ function Modal({
   title,
   children,
   onClose,
+  className = "",
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  className?: string;
 }) {
   useEffect(() => {
     const f = (e: KeyboardEvent) => {
@@ -491,7 +493,7 @@ function Modal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`modal ${className}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-title">
           <h2>{title}</h2>
           <button
@@ -2176,7 +2178,7 @@ function CompanyPage({
       actions={canManage ? <Button variant="primary" onClick={() => { setCreating(true); setEditorOpen(true); setCompany(null); setName(""); setSlug(""); setCompanyProfile(""); setAddress(""); setCommodity(""); setCompanyNumber(""); setLocation(""); setEmail(""); }}><Plus size={16} /> New Company</Button> : undefined}
     />
     <div className="settings-stack company-page">
-      {editorOpen && <Modal title={creating ? "New Company" : "Edit Company"} onClose={() => setEditorOpen(false)}><Card className="padded company-detail-card">
+      {editorOpen && <Modal title={creating ? "New Company" : "Edit Company"} onClose={() => setEditorOpen(false)} className="company-modal"><Card className="padded company-detail-card">
         {!creating && company ? (
           <div className="company-hero">
             <div className="company-monogram" aria-hidden="true">{company.name.slice(0, 2).toUpperCase()}</div>
