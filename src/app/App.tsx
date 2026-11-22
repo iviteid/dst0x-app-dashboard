@@ -2024,17 +2024,6 @@ function Profile({
                 ["UTC", "UTC"],
               ]}
             />
-            <label>
-              Default farm
-              <input
-                value={farm === "all" ? "All demo farms" : farmName(farm)}
-                disabled
-              />
-            </label>
-            <label>
-              Temperature unit
-              <input value="Celsius (°C)" disabled />
-            </label>
           </div>
         </Card>
         <Card className="padded">
