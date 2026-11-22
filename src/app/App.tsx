@@ -163,7 +163,7 @@ const nav: [string, string][] = [
   ["company", "Company"],
 ];
 const badge = (text: string) =>
-  `badge ${/critical|offline|missing|error/i.test(text) ? "danger" : /warning|stale|suspect|low/i.test(text) ? "warning" : /information|recent/i.test(text) ? "info" : "success"}`;
+  `badge ${/^online$/i.test(text) ? "online" : /^offline$/i.test(text) ? "offline" : /critical|missing|error/i.test(text) ? "danger" : /warning|stale|suspect|low/i.test(text) ? "warning" : /information|recent/i.test(text) ? "info" : "success"}`;
 const fmt = (v: number, unit = "", decimals?: number) => {
   const d = decimals != null ? decimals : unit === "lux" ? 0 : 1;
   return `${new Intl.NumberFormat("en-US", { minimumFractionDigits: decimals != null ? d : 0, maximumFractionDigits: d }).format(v)}${unit === "%" ? "%" : unit ? ` ${unit}` : ""}`;
@@ -3349,6 +3349,7 @@ export default function App() {
   const [session, setSession] = useState(
     () => localStorage.getItem("agrivaid-demo-session") === "true",
   );
+  const [authReady, setAuthReady] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [devices, setDevices] = useState<Device[]>(() =>
@@ -3413,12 +3414,15 @@ export default function App() {
     return () => m.removeEventListener("change", apply);
   }, [theme]);
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      if (s) {
-        setSession(true);
-        void reloadProfile();
-      }
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session: s } }) => {
+        if (s) {
+          setSession(true);
+          void reloadProfile();
+        }
+      })
+      .catch((error) => console.warn("Unable to restore Supabase session", error))
+      .finally(() => setAuthReady(true));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       if (s) {
         setSession(true);
@@ -3432,11 +3436,12 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
   useEffect(() => {
+    if (!authReady) return;
     if (!session && !isPublic(path)) {
       sessionStorage.setItem("agrivaid-return", path + location.search);
       go("/login");
     } else if (session && isPublic(path)) go("/dashboard");
-  }, [session, path]);
+  }, [authReady, session, path]);
   const login = () => {
     localStorage.setItem("agrivaid-demo-session", "true");
     setSession(true);
@@ -3454,7 +3459,9 @@ export default function App() {
   };
   const props = { devices, alerts, farm, go, notify, refresh, updatedSensorIds };
   let page: React.ReactNode = null;
-  if (!session && isPublic(path))
+  if (!authReady)
+    page = <div className="app-loading" role="status"><span className="app-loading-mark" />Restoring your workspace…</div>;
+  else if (!session && isPublic(path))
     page = <AuthPage path={path} go={go} login={login} notify={notify} />;
   else if (session) {
     if (path === "/dashboard") page = <Dashboard {...props} />;
