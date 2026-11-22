@@ -9,13 +9,15 @@ const DEVICE_INTERVAL_URL = API_URL.replace(
   "/device-interval",
 );
 
-// The telemetry key is sent as an Authorization header, never as a query
-// parameter: query strings end up in server logs, browser history and the
-// Vercel access log, while headers do not. Note the key is still visible to
-// anyone who opens DevTools on this public SPA, so the backend must treat it
-// as a read-only key and the key must be rotated if it was ever exposed.
-function authHeaders(): Record<string, string> {
-  return API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {};
+// The DST-API backend only accepts the key as a ?api_key= query parameter
+// and rejects an Authorization header with 401 (verified live). A header-only
+// change on 2026-11-22 broke every Live reading, so the query parameter is
+// restored here. The key is still visible to anyone who opens DevTools on
+// this public SPA: the proper long-term fix is backend-side (accept the
+// Authorization header, scope the key read-only, rotate the exposed key),
+// not in this file.
+function addApiKey(url: URL): void {
+  if (API_KEY) url.searchParams.set("api_key", API_KEY);
 }
 
 type SensorRecord = {
@@ -134,8 +136,9 @@ export async function fetchDeviceData(deviceId: string): Promise<{
     url.searchParams.set("device_id", deviceId);
     url.searchParams.set("limit", "500");
     url.searchParams.set("page", "1");
+    addApiKey(url);
 
-    const response = await fetch(url, { headers: authHeaders() });
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Sensor API returned ${response.status}`);
     }
@@ -203,7 +206,8 @@ export async function fetchDeviceInterval(deviceId: string): Promise<number> {
   if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
   const url = new URL(DEVICE_INTERVAL_URL);
   url.searchParams.set("device_id", deviceId);
-  const response = await fetch(url, { headers: authHeaders() });
+  addApiKey(url);
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Unable to load interval (${response.status})`);
   }
@@ -216,9 +220,11 @@ export async function updateDeviceInterval(
   intervalSeconds: number,
 ): Promise<number> {
   if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
-  const response = await fetch(DEVICE_INTERVAL_URL, {
+  const url = new URL(DEVICE_INTERVAL_URL);
+  addApiKey(url);
+  const response = await fetch(url, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       device_id: deviceId,
       interval_seconds: intervalSeconds,
