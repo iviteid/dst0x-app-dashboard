@@ -2055,6 +2055,7 @@ function CompanyPage({
   onCompanyChanged: () => Promise<void>;
 }) {
   const [company, setCompany] = useState<Company | null>(null);
+  const [creating, setCreating] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -2072,6 +2073,7 @@ function CompanyPage({
       ]);
       if (active) {
         setCompany(next);
+        setCreating(false);
         setCompanies(allCompanies);
         setName(next?.name ?? "");
         setSlug(next?.slug ?? "");
@@ -2092,13 +2094,14 @@ function CompanyPage({
     }
     setSaving(true);
     try {
-      const next = company
+      const next = !creating && company
         ? await updateCompany(company.id, cleanName, cleanSlug)
         : await createCompany(cleanName, cleanSlug);
       setCompany(next);
+      setCreating(false);
       setCompanies(await listCompanies());
       await onCompanyChanged();
-      notify(company ? "Company updated." : "Company created and assigned to your account.");
+      notify(!creating && company ? "Company updated." : "Company created.");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Could not save the company.", "error");
     } finally {
@@ -2127,12 +2130,13 @@ function CompanyPage({
     <PageHead
       title="Company"
       description="Manage the company that owns users, devices, sensor IDs, and telemetry access."
+      actions={canManage ? <Button variant="primary" onClick={() => { setCreating(true); setCompany(null); setName(""); setSlug(""); }}><Plus size={16} /> New Company</Button> : undefined}
     />
     <div className="settings-stack">
       <Card className="padded">
         <PanelHead
-          title={company ? "Company details" : "Create your company"}
-          detail={company ? "This is the current data-access boundary." : "Create a company before registering devices and sensor IDs."}
+          title={!creating && company ? "Company details" : "Create new company"}
+          detail={!creating && company ? "This is the current data-access boundary." : "Create a company before registering devices and sensor IDs."}
         />
         {loading ? <p className="muted">Loading company…</p> : (
           <form onSubmit={save} className="form-grid">
@@ -2144,16 +2148,16 @@ function CompanyPage({
               Company slug
               <input value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase())} placeholder="dstx-indonesia" disabled={!canManage || saving} required />
             </label>
-            {company && <div className="key-values full"><div><span>Company ID</span><b>{company.id}</b></div><div><span>Created</span><b>{formatTime(company.created_at)}</b></div></div>}
+            {!creating && company && <div className="key-values full"><div><span>Company ID</span><b>{company.id}</b></div><div><span>Created</span><b>{formatTime(company.created_at)}</b></div></div>}
             {!canManage && <p className="hint full">Only a company administrator can create or edit this record.</p>}
-            {canManage && <div className="form-actions full"><Button variant="primary" type="submit" disabled={saving}>{saving ? "Saving…" : company ? "Save company" : "Create company"}</Button></div>}
+            {canManage && <div className="form-actions full">{creating && <Button onClick={() => { setCreating(false); void getCompany(profile?.company_id ?? "").then((current) => { setCompany(current); setName(current?.name ?? ""); setSlug(current?.slug ?? ""); }); }}>Cancel</Button>}<Button variant="primary" type="submit" disabled={saving}>{saving ? "Saving…" : !creating && company ? "Save company" : "Create company"}</Button></div>}
           </form>
         )}
       </Card>
       {canManage && <Card className="padded">
         <PanelHead title="All companies" detail={`${companies.length} registered companies`} />
         {companies.length ? <div className="table-scroll"><table><thead><tr><th>Company</th><th>Slug</th><th>Created</th><th>Action</th></tr></thead><tbody>
-          {companies.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.id}</small></td><td>{item.slug}</td><td>{formatTime(item.created_at)}</td><td><div className="table-actions"><button className="text-action" onClick={() => { setCompany(item); setName(item.name); setSlug(item.slug); }}>Edit</button><button className="text-action danger" onClick={() => void removeCompany(item)}>Delete</button></div></td></tr>)}
+          {companies.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.id}</small></td><td>{item.slug}</td><td>{formatTime(item.created_at)}</td><td><div className="table-actions"><button className="text-action" onClick={() => { setCreating(false); setCompany(item); setName(item.name); setSlug(item.slug); }}>Edit</button><button className="text-action danger" onClick={() => void removeCompany(item)}>Delete</button></div></td></tr>)}
         </tbody></table></div> : <Empty title="No companies" detail="Create the first company to begin registering devices." />}
       </Card>}
     </div>
