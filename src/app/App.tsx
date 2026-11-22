@@ -993,7 +993,7 @@ function SensorCarousel({ devices, go, updatedSensorIds }: { devices: Device[]; 
     if (!card) return;
     const offset = card.offsetLeft - el.offsetWidth / 2 + card.offsetWidth / 2;
     el.scrollTo({ left: offset, behavior: "smooth" });
-    setTimeout(() => { programmatic.current = false; }, 500);
+    setTimeout(() => { programmatic.current = false; }, 400);
   };
   const onScroll = () => {
     if (programmatic.current) return;
@@ -1012,7 +1012,7 @@ function SensorCarousel({ devices, go, updatedSensorIds }: { devices: Device[]; 
         if (dist < minDist) { minDist = dist; closest = i; }
       });
       setActive(closest);
-    }, 120);
+    }, 60);
   };
   const inRange = (s: Sensor) => {
     if (s.quality === "missing") return false;

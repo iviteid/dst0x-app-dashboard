@@ -113,10 +113,10 @@ input:not([type="checkbox"]):not([type="radio"]):hover, select:hover { border-co
   box-shadow: 0 3px 8px rgba(21, 47, 69, .11);
   opacity: .88;
   z-index: 1;
-  transition: transform .45s cubic-bezier(.22, 1, .36, 1), opacity .45s ease, box-shadow .45s ease, height .45s cubic-bezier(.22, 1, .36, 1), border-color .3s ease;
+  transition: transform .3s cubic-bezier(.22, 1, .36, 1), opacity .3s ease, box-shadow .3s ease, height .3s cubic-bezier(.22, 1, .36, 1), border-color .2s ease;
   will-change: transform, opacity;
 }
-.sc-card-inner { height: 100%; padding: 23px 24px 21px; gap: 0; transition: transform .45s cubic-bezier(.22, 1, .36, 1); }
+.sc-card-inner { height: 100%; padding: 23px 24px 21px; gap: 0; transition: transform .3s cubic-bezier(.22, 1, .36, 1); }
 .sc-card:hover { transform: translateY(-3px); opacity: 1; box-shadow: 0 8px 22px rgba(21, 47, 69, .13); }
 .sc-card.sc-active {
   width: 304px;
