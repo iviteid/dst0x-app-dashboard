@@ -851,17 +851,6 @@ function AppShell({
           })}
         </nav>
         <div className="side-bottom">
-          {profile?.role === "admin" && (
-            <button
-              className={path === "/users" ? "active" : ""}
-              onClick={() => {
-                go("/users");
-                setMobile(false);
-              }}
-            >
-              <Users size={18} /> User Management
-            </button>
-          )}
           <button
             className={path === "/profile" ? "active" : ""}
             onClick={() => {
@@ -2055,14 +2044,24 @@ function Profile({
   );
 }
 
+function CompanyUserPage({ notify, profile, companyId, go }: { notify: (m: string, k?: "error" | "success") => void; profile: UserProfile | null; companyId: string; go: (path: string) => void }) {
+  const [companyName, setCompanyName] = useState("");
+  useEffect(() => {
+    getCompany(companyId).then((c) => setCompanyName(c?.name ?? companyId)).catch(() => setCompanyName(companyId));
+  }, [companyId]);
+  return <UserManagement notify={notify} profile={profile} companyId={companyId} companyName={companyName || companyId} go={go} />;
+}
+
 function CompanyPage({
   profile,
   notify,
   onCompanyChanged,
+  go,
 }: {
   profile: UserProfile | null;
   notify: (message: string, kind?: "error" | "success") => void;
   onCompanyChanged: () => Promise<void>;
+  go: (path: string) => void;
 }) {
   const [company, setCompany] = useState<Company | null>(null);
   const [creating, setCreating] = useState(false);
@@ -2202,7 +2201,7 @@ function CompanyPage({
       {canManage && <Card className="padded">
         <PanelHead title="All companies" detail={`${companies.length} registered companies`} />
         {companies.length ? <div className="table-scroll"><table><thead><tr><th>Company</th><th>Slug</th><th>Created</th><th>Action</th></tr></thead><tbody>
-          {companies.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.id}</small></td><td>{item.slug}</td><td>{formatTime(item.created_at)}</td><td><div className="table-actions"><button className="text-action" onClick={() => { setCreating(false); setEditorOpen(true); setCompany(item); setName(item.name); setSlug(item.slug); setCompanyProfile(item.profile); setAddress(item.address); setCommodity(item.commodity); setCompanyNumber(item.company_number); setLocation(item.location); setEmail(item.email); }}>Edit</button><button className="text-action danger" onClick={() => void removeCompany(item)}>Delete</button></div></td></tr>)}
+          {companies.map((item) => <tr key={item.id} style={{ cursor: "pointer" }} onClick={() => go(`/company/${item.id}/users`)}><td><b>{item.name}</b><small>{item.id}</small></td><td>{item.slug}</td><td>{formatTime(item.created_at)}</td><td><div className="table-actions" onClick={e => e.stopPropagation()}><button className="text-action" onClick={() => { setCreating(false); setEditorOpen(true); setCompany(item); setName(item.name); setSlug(item.slug); setCompanyProfile(item.profile); setAddress(item.address); setCommodity(item.commodity); setCompanyNumber(item.company_number); setLocation(item.location); setEmail(item.email); }}>Edit</button><button className="text-action danger" onClick={() => void removeCompany(item)}>Delete</button></div></td></tr>)}
         </tbody></table></div> : <Empty title="No companies" detail="Create the first company to begin registering devices." />}
       </Card>}
     </div>
@@ -2236,9 +2235,15 @@ const PERM_LABELS: Record<string, string> = {
 function UserManagement({
   notify,
   profile,
+  companyId,
+  companyName,
+  go,
 }: {
   notify: (m: string, k?: "error" | "success") => void;
   profile: UserProfile | null;
+  companyId: string;
+  companyName: string;
+  go: (path: string) => void;
 }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const allRoles = roles.map((role) => role.key);
@@ -2261,7 +2266,7 @@ function UserManagement({
 
   const loadUsers = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from("user_profiles").select("*, companies(name)").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("user_profiles").select("*, companies(name)").eq("company_id", companyId).order("created_at", { ascending: false });
     if (error) notify(error.message, "error");
     else setUsers((data ?? []) as UserProfile[]);
     setLoading(false);
@@ -2303,9 +2308,7 @@ function UserManagement({
   }, []);
 
   const filteredUsers = users.filter(
-    (u) => u.role === selectedRole && (
-      !search || u.full_name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
-    )
+    (u) => (!search || u.full_name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()))
   );
 
   const [deleteConfirm, setDeleteConfirm] = useState<UserProfile | null>(null);
@@ -2386,45 +2389,15 @@ function UserManagement({
 
   return (
     <>
-      <PageHead title="Peran Pengguna" description="Kelola peran, pengguna, dan hak akses." />
+      <PageHead
+        title={companyName}
+        description="Kelola pengguna yang terdaftar di perusahaan ini."
+        actions={
+          <Button onClick={() => go("/company")}><ChevronLeft size={16} /> Kembali</Button>
+        }
+      />
       <div className="um-layout">
-        <aside className="um-sidebar" onClick={() => { if (roleMenuOpen) setRoleMenuOpen(null); }}>
-          <button className={`um-role-item ${selectedRole === "admin" ? "active" : ""}`} onClick={() => setSelectedRole("admin")}>
-            Admin
-          </button>
-          <div className="um-sidebar-divider" />
-          <div className="um-sidebar-section">Custom Role</div>
-          {customRoles.length > 0 ? customRoles.map((role) => (
-            <div key={role.key} className="um-role-item-wrap">
-              <button className={`um-role-item ${selectedRole === role.key ? "active" : ""}`} onClick={() => setSelectedRole(role.key)}>
-                {role.label}
-              </button>
-              {!role.is_system && <button className="um-role-menu-btn" onClick={(e) => { e.stopPropagation(); setRoleMenuOpen(roleMenuOpen === role.key ? null : role.key); }}>
-                <MoreHorizontal size={16} />
-              </button>}
-              {!role.is_system && roleMenuOpen === role.key && (
-                <div className="um-role-dropdown" onClick={e => e.stopPropagation()}>
-                  <button onClick={() => { setRoleMenuOpen(null); setEditRoleOpen(role.key); }}>
-                    <Pencil size={14} /> Edit
-                  </button>
-                  <button className="um-dropdown-danger" onClick={() => handleDeleteRole(role.key)}>
-                    <Trash2 size={14} /> Hapus
-                  </button>
-                </div>
-              )}
-            </div>
-          )) : (
-            <div className="um-sidebar-empty">
-              <Info size={14} />
-              <span>Belum ada role ditambahkan</span>
-            </div>
-          )}
-          <button className="um-new-role-btn" onClick={() => setNewRoleOpen(true)}>
-            <Plus size={14} /> Role Baru
-          </button>
-        </aside>
-
-        <div className="um-main">
+        <div className="um-main" style={{ width: "100%" }}>
           <div className="um-tabs">
             <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
               <Users size={15} /> Pengguna
@@ -3454,7 +3427,11 @@ export default function App() {
     page = <AuthPage path={path} go={go} login={login} notify={notify} />;
   else if (session) {
     if (path === "/dashboard") page = <Dashboard {...props} />;
-    else if (path === "/company") page = <CompanyPage profile={profile} notify={notify} onCompanyChanged={reloadProfile} />;
+    else if (path === "/company") page = <CompanyPage profile={profile} notify={notify} onCompanyChanged={reloadProfile} go={go} />;
+    else if (path.startsWith("/company/") && path.endsWith("/users")) {
+      const companyId = path.split("/")[2];
+      page = <CompanyUserPage notify={notify} profile={profile} companyId={companyId} go={go} />;
+    }
     else if (path === "/devices") page = <Devices {...props} />;
     else if (path.startsWith("/devices/"))
       page = (
@@ -3470,10 +3447,6 @@ export default function App() {
           setTheme={setTheme}
           profile={profile}
         />
-      );
-    else if (path === "/users" && profile?.role === "admin")
-      page = (
-        <UserManagement notify={notify} profile={profile} />
       );
     else if (path === "/settings")
       page = (
