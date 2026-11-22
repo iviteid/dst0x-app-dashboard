@@ -2059,6 +2059,12 @@ function CompanyPage({
   const [companies, setCompanies] = useState<Company[]>([]);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [companyProfile, setCompanyProfile] = useState("");
+  const [address, setAddress] = useState("");
+  const [commodity, setCommodity] = useState("");
+  const [companyNumber, setCompanyNumber] = useState("");
+  const [location, setLocation] = useState("");
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const canManage = profile?.role === "admin";
@@ -2077,6 +2083,12 @@ function CompanyPage({
         setCompanies(allCompanies);
         setName(next?.name ?? "");
         setSlug(next?.slug ?? "");
+        setCompanyProfile(next?.profile ?? "");
+        setAddress(next?.address ?? "");
+        setCommodity(next?.commodity ?? "");
+        setCompanyNumber(next?.company_number ?? "");
+        setLocation(next?.location ?? "");
+        setEmail(next?.email ?? "");
         setLoading(false);
       }
     };
@@ -2094,9 +2106,19 @@ function CompanyPage({
     }
     setSaving(true);
     try {
+      const details = {
+        name: cleanName,
+        slug: cleanSlug,
+        profile: companyProfile.trim(),
+        address: address.trim(),
+        commodity: commodity.trim(),
+        company_number: companyNumber.trim(),
+        location: location.trim(),
+        email: email.trim(),
+      };
       const next = !creating && company
-        ? await updateCompany(company.id, cleanName, cleanSlug)
-        : await createCompany(cleanName, cleanSlug);
+        ? await updateCompany(company.id, details)
+        : await createCompany(cleanName, cleanSlug).then((created) => updateCompany(created.id, details));
       setCompany(next);
       setCreating(false);
       setCompanies(await listCompanies());
@@ -2130,7 +2152,7 @@ function CompanyPage({
     <PageHead
       title="Company"
       description="Manage the company that owns users, devices, sensor IDs, and telemetry access."
-      actions={canManage ? <Button variant="primary" onClick={() => { setCreating(true); setCompany(null); setName(""); setSlug(""); }}><Plus size={16} /> New Company</Button> : undefined}
+      actions={canManage ? <Button variant="primary" onClick={() => { setCreating(true); setCompany(null); setName(""); setSlug(""); setCompanyProfile(""); setAddress(""); setCommodity(""); setCompanyNumber(""); setLocation(""); setEmail(""); }}><Plus size={16} /> New Company</Button> : undefined}
     />
     <div className="settings-stack">
       <Card className="padded">
@@ -2148,16 +2170,22 @@ function CompanyPage({
               Company slug
               <input value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase())} placeholder="dstx-indonesia" disabled={!canManage || saving} required />
             </label>
+            <label className="full">Company profile<textarea value={companyProfile} onChange={(event) => setCompanyProfile(event.target.value)} disabled={!canManage || saving} placeholder="Brief company profile" rows={3} /></label>
+            <label>Company email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={!canManage || saving} placeholder="company@example.com" /></label>
+            <label>Company number<input value={companyNumber} onChange={(event) => setCompanyNumber(event.target.value)} disabled={!canManage || saving} placeholder="Phone or registration number" /></label>
+            <label>Location<input value={location} onChange={(event) => setLocation(event.target.value)} disabled={!canManage || saving} placeholder="City, province, country" /></label>
+            <label>Commodity<input value={commodity} onChange={(event) => setCommodity(event.target.value)} disabled={!canManage || saving} placeholder="e.g. Coffee, rice" /></label>
+            <label className="full">Address<textarea value={address} onChange={(event) => setAddress(event.target.value)} disabled={!canManage || saving} placeholder="Full company address" rows={3} /></label>
             {!creating && company && <div className="key-values full"><div><span>Company ID</span><b>{company.id}</b></div><div><span>Created</span><b>{formatTime(company.created_at)}</b></div></div>}
             {!canManage && <p className="hint full">Only a company administrator can create or edit this record.</p>}
-            {canManage && <div className="form-actions full">{creating && <Button onClick={() => { setCreating(false); void getCompany(profile?.company_id ?? "").then((current) => { setCompany(current); setName(current?.name ?? ""); setSlug(current?.slug ?? ""); }); }}>Cancel</Button>}<Button variant="primary" type="submit" disabled={saving}>{saving ? "Saving…" : !creating && company ? "Save company" : "Create company"}</Button></div>}
+            {canManage && <div className="form-actions full">{creating && <Button onClick={() => { setCreating(false); void getCompany(profile?.company_id ?? "").then((current) => { setCompany(current); setName(current?.name ?? ""); setSlug(current?.slug ?? ""); setCompanyProfile(current?.profile ?? ""); setAddress(current?.address ?? ""); setCommodity(current?.commodity ?? ""); setCompanyNumber(current?.company_number ?? ""); setLocation(current?.location ?? ""); setEmail(current?.email ?? ""); }); }}>Cancel</Button>}<Button variant="primary" type="submit" disabled={saving}>{saving ? "Saving…" : !creating && company ? "Save company" : "Create company"}</Button></div>}
           </form>
         )}
       </Card>
       {canManage && <Card className="padded">
         <PanelHead title="All companies" detail={`${companies.length} registered companies`} />
         {companies.length ? <div className="table-scroll"><table><thead><tr><th>Company</th><th>Slug</th><th>Created</th><th>Action</th></tr></thead><tbody>
-          {companies.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.id}</small></td><td>{item.slug}</td><td>{formatTime(item.created_at)}</td><td><div className="table-actions"><button className="text-action" onClick={() => { setCreating(false); setCompany(item); setName(item.name); setSlug(item.slug); }}>Edit</button><button className="text-action danger" onClick={() => void removeCompany(item)}>Delete</button></div></td></tr>)}
+          {companies.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.id}</small></td><td>{item.slug}</td><td>{formatTime(item.created_at)}</td><td><div className="table-actions"><button className="text-action" onClick={() => { setCreating(false); setCompany(item); setName(item.name); setSlug(item.slug); setCompanyProfile(item.profile); setAddress(item.address); setCommodity(item.commodity); setCompanyNumber(item.company_number); setLocation(item.location); setEmail(item.email); }}>Edit</button><button className="text-action danger" onClick={() => void removeCompany(item)}>Delete</button></div></td></tr>)}
         </tbody></table></div> : <Empty title="No companies" detail="Create the first company to begin registering devices." />}
       </Card>}
     </div>

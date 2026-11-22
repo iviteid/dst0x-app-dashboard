@@ -25,8 +25,16 @@ export type Company = {
   id: string;
   name: string;
   slug: string;
+  profile: string;
+  address: string;
+  commodity: string;
+  company_number: string;
+  location: string;
+  email: string;
   created_at: string;
 };
+
+export type CompanyDetails = Omit<Company, "id" | "created_at">;
 
 function deviceFromRow(row: DeviceRow): Device {
   return {
@@ -110,7 +118,7 @@ export async function createCompany(name: string, slug: string) {
 export async function getCompany(id: string): Promise<Company | null> {
   const { data, error } = await supabase
     .from("companies")
-    .select("id, name, slug, created_at")
+    .select("id, name, slug, profile, address, commodity, company_number, location, email, created_at")
     .eq("id", id)
     .single();
   if (error || !data) return null;
@@ -120,7 +128,7 @@ export async function getCompany(id: string): Promise<Company | null> {
 export async function listCompanies(): Promise<Company[]> {
   const { data, error } = await supabase
     .from("companies")
-    .select("id, name, slug, created_at")
+    .select("id, name, slug, profile, address, commodity, company_number, location, email, created_at")
     .order("created_at", { ascending: true });
   if (error) throw error;
   return (data ?? []) as Company[];
@@ -131,12 +139,12 @@ export async function deleteCompany(id: string) {
   if (error) throw error;
 }
 
-export async function updateCompany(id: string, name: string, slug: string) {
+export async function updateCompany(id: string, details: CompanyDetails) {
   const { data, error } = await supabase
     .from("companies")
-    .update({ name, slug, updated_at: new Date().toISOString() })
+    .update({ ...details, updated_at: new Date().toISOString() })
     .eq("id", id)
-    .select("id, name, slug, created_at")
+    .select("id, name, slug, profile, address, commodity, company_number, location, email, created_at")
     .single();
   if (error) throw error;
   return data as Company;
