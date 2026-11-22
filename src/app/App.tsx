@@ -858,7 +858,7 @@ function AppShell({
               setMobile(false);
             }}
           >
-            <UserRound size={18} /> User profile
+            <UserRound size={18} /> Settings
           </button>
           <button onClick={logout}>
             <LogOut size={18} /> {profile ? "Sign out" : "Leave demo"}
@@ -2308,7 +2308,7 @@ function UserManagement({
   }, []);
 
   const filteredUsers = users.filter(
-    (u) => (!search || u.full_name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()))
+    (u) => u.role === selectedRole && (!search || u.full_name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()))
   );
 
   const [deleteConfirm, setDeleteConfirm] = useState<UserProfile | null>(null);
@@ -2414,7 +2414,23 @@ function UserManagement({
                   <Search size={16} />
                   <input placeholder="Nama User" value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
+                <Button onClick={() => setNewRoleOpen(true)}><Plus size={16} /> Tambah Role</Button>
                 <Button variant="primary" onClick={() => setAddOpen(true)}><Plus size={16} /> Tambah Pengguna</Button>
+              </div>
+              <div className="um-role-chips">
+                <button className={`um-role-chip ${selectedRole === "admin" ? "active" : ""}`} onClick={() => setSelectedRole("admin")}>Admin</button>
+                {customRoles.map((role) => (
+                  <div key={role.key} className="um-role-chip-wrap">
+                    <button className={`um-role-chip ${selectedRole === role.key ? "active" : ""}`} onClick={() => setSelectedRole(role.key)}>{role.label}</button>
+                    {!role.is_system && <button className="um-role-chip-menu" onClick={(e) => { e.stopPropagation(); setRoleMenuOpen(roleMenuOpen === role.key ? null : role.key); }}><MoreHorizontal size={13} /></button>}
+                    {!role.is_system && roleMenuOpen === role.key && (
+                      <div className="um-role-dropdown" onClick={e => e.stopPropagation()}>
+                        <button onClick={() => { setRoleMenuOpen(null); setEditRoleOpen(role.key); }}><Pencil size={14} /> Edit</button>
+                        <button className="um-dropdown-danger" onClick={() => handleDeleteRole(role.key)}><Trash2 size={14} /> Hapus</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
               <div className="table-wrap">
                 <table className="um-table">

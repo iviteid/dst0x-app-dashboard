@@ -3046,6 +3046,52 @@ td.number {
   display: flex;
   flex-direction: column;
 }
+.um-role-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px 0 2px;
+}
+.um-role-chip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.um-role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.um-role-chip:hover { background: var(--elevated); }
+.um-role-chip.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+.um-role-chip-menu {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  margin-left: 2px;
+}
+.um-role-chip-menu:hover { background: var(--elevated); color: var(--text); }
 .um-role-item {
   display: block;
   width: 100%;
