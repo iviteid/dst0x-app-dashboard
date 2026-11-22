@@ -9,8 +9,13 @@ const DEVICE_INTERVAL_URL = API_URL.replace(
   "/device-interval",
 );
 
-function addApiKey(url: URL): void {
-  if (API_KEY) url.searchParams.set("api_key", API_KEY);
+// The telemetry key is sent as an Authorization header, never as a query
+// parameter: query strings end up in server logs, browser history and the
+// Vercel access log, while headers do not. Note the key is still visible to
+// anyone who opens DevTools on this public SPA, so the backend must treat it
+// as a read-only key and the key must be rotated if it was ever exposed.
+function authHeaders(): Record<string, string> {
+  return API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {};
 }
 
 type SensorRecord = {
@@ -129,9 +134,8 @@ export async function fetchDeviceData(deviceId: string): Promise<{
     url.searchParams.set("device_id", deviceId);
     url.searchParams.set("limit", "500");
     url.searchParams.set("page", "1");
-    addApiKey(url);
 
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: authHeaders() });
     if (!response.ok) {
       throw new Error(`Sensor API returned ${response.status}`);
     }
@@ -199,8 +203,7 @@ export async function fetchDeviceInterval(deviceId: string): Promise<number> {
   if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
   const url = new URL(DEVICE_INTERVAL_URL);
   url.searchParams.set("device_id", deviceId);
-  addApiKey(url);
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: authHeaders() });
   if (!response.ok) {
     throw new Error(`Unable to load interval (${response.status})`);
   }
@@ -215,7 +218,7 @@ export async function updateDeviceInterval(
   if (!DEVICE_INTERVAL_URL) throw new Error("Telemetry API is not configured.");
   const response = await fetch(DEVICE_INTERVAL_URL, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({
       device_id: deviceId,
       interval_seconds: intervalSeconds,
