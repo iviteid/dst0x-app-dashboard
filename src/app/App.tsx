@@ -80,11 +80,11 @@ import DeviceMap from "../features/dashboard/components/DeviceMap";
 import FirmwareOta from "../features/firmware/components/FirmwareOta";
 import DeviceMonitor from "../features/devices/components/DeviceMonitor";
 import { deviceKind, devicePosition, kindLabels } from "../features/devices/lib/deviceGeo";
-import { supabase, signIn, signUp, signOut, createRole, deleteRole, getCompanyName, getCurrentProfile, getUserPermissions, listRoles, updateRole, type AppRole, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
+import { supabase, signIn, signUp, signOut, createRole, deleteRole, deleteUser, getCompanyName, getCurrentProfile, getUserPermissions, listRoles, updateRole, type AppRole, type UserProfile, type Permission, type Role, ROLE_LABELS, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS } from "../services/supabase";
 
 const POLL_INTERVAL = 15 * 1000;
 
-function useLiveData(devices: Device[]) {
+function useLiveData(devices: Device[], onReading: (deviceId: string) => void) {
   const [, tick] = useState(0);
   const prevValues = useRef<Map<string, number>>(new Map());
   const [updatedIds, setUpdatedIds] = useState<Set<string>>(new Set());
@@ -97,7 +97,7 @@ function useLiveData(devices: Device[]) {
       );
       if (mounted) {
         const changed = new Set<string>();
-        for (const result of results) {
+        for (const [index, result] of results.entries()) {
           if (!result) continue;
           for (const s of result.sensors) {
             if (s.quality === "valid" && prevValues.current.get(s.id) !== s.value) {
@@ -106,6 +106,7 @@ function useLiveData(devices: Device[]) {
             }
           }
           updateLiveData(result.sensors, result.telemetry, result.lastSeen);
+          onReading(devices[index].id);
         }
         if (changed.size > 0) {
           setUpdatedIds(changed);
@@ -797,7 +798,7 @@ function AppShell({
     nav.find(([p]) => path === `/${p}`)?.[1] ||
     (/\/devices\//.test(path)
       ? "Device Detail"
-      : path === "/profile"
+      : path === "/profile" || path === "/settings"
         ? "User Profile"
         : "Settings");
   return (
@@ -2267,9 +2268,13 @@ function UserManagement({
 
   const confirmDelete = async () => {
     if (!deleteConfirm) return;
-    const { error } = await supabase.from("user_profiles").delete().eq("id", deleteConfirm.id);
-    if (error) notify(error.message, "error");
-    else { notify(`${deleteConfirm.full_name} dihapus.`); loadUsers(); }
+    try {
+      await deleteUser(deleteConfirm.id);
+      notify(`${deleteConfirm.full_name} dihapus.`);
+      await loadUsers();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Gagal menghapus pengguna.", "error");
+    }
     setDeleteConfirm(null);
   };
 
@@ -2659,12 +2664,10 @@ function UserAddModal({ onClose, notify, onSave, hiddenRoles = [] }: { onClose: 
     if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) { notify("Masukkan email yang valid.", "error"); return; }
     if (!name.trim()) { notify("Nama wajib diisi.", "error"); return; }
     if (password.length < 8) { notify("Password minimal 8 karakter.", "error"); return; }
+    if (!companyId) { notify("Pilih perusahaan untuk pengguna baru.", "error"); return; }
     setBusy(true);
     try {
-      const auth = await signUp(email, password, name.trim(), role);
-      if (companyId && auth.user?.id) {
-        await supabase.from("user_profiles").update({ company_id: companyId }).eq("id", auth.user.id);
-      }
+      await signUp(email, password, name.trim(), role, companyId);
       notify(`${name.trim()} berhasil dibuat.`);
       onSave();
       onClose();
@@ -2688,7 +2691,7 @@ function UserAddModal({ onClose, notify, onSave, hiddenRoles = [] }: { onClose: 
         </label>
         <label className="modal-label">Perusahaan
           <select className="ch-edit-input" value={companyId} onChange={e => setCompanyId(e.target.value)}>
-            <option value="">{companies.length ? "Pilih perusahaan (opsional)" : "Tidak ada perusahaan"}</option>
+            <option value="">{companies.length ? "Pilih perusahaan" : "Tidak ada perusahaan"}</option>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
@@ -3296,7 +3299,15 @@ export default function App() {
     }
     setAlerts(read("agrivaid-alerts", initialAlerts));
   };
-  const updatedSensorIds = useLiveData(devices);
+  const updatedSensorIds = useLiveData(devices, (deviceId) => {
+    setDevices((current) => {
+      const target = current.find((device) => device.id === deviceId);
+      if (!target || target.status === "online") return current;
+      return current.map((device) =>
+        device.id === deviceId ? { ...device, status: "online" } : device,
+      );
+    });
+  });
   const notify = (text: string, kind: "error" | "success" = "success") => {
     setNotice({ text, kind });
     setTimeout(() => setNotice(null), 3600);
@@ -3396,11 +3407,12 @@ export default function App() {
       );
     else if (path === "/settings")
       page = (
-        <SettingsPage
+        <Profile
           farm={farm}
           notify={notify}
           theme={theme}
           setTheme={setTheme}
+          profile={profile}
         />
       );
     else

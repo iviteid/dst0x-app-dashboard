@@ -51,7 +51,7 @@ The application uses a control-plane/data-plane split:
 
 The dashboard starts with no registered device or sensor ID. An administrator can create a company from **Peran Pengguna**, then create device and sensor IDs from the dashboard. With no sensor ID, the overview deliberately displays one unnamed placeholder card rather than bundled sample parameters.
 
-If these migrations are executed manually in Supabase SQL Editor, run them in numeric order through `007_custom_roles.sql` before creating the first account.
+If these migrations are executed manually in Supabase SQL Editor, run them in numeric order through `008_user_company_and_admin_delete.sql` before creating the first account.
 
 Copy `.env.example` to `.env.local` and set the Supabase project URL/key. Set `VITE_TELEMETRY_API_URL` only to the authenticated telemetry API URL (for example `https://api.example.com/v1/sensor-records`). Never set a MongoDB connection string in a `VITE_*` variable because Vite exposes those values to every browser.
 

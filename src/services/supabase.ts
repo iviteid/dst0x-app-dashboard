@@ -80,11 +80,17 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   ],
 };
 
-export async function signUp(email: string, password: string, fullName: string, role: Role = "asisten") {
+export async function signUp(
+  email: string,
+  password: string,
+  fullName: string,
+  role: Role = "asisten",
+  companyId?: string,
+) {
   const { data: auth, error: authError } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: fullName, role } },
+    options: { data: { full_name: fullName, role, company_id: companyId ?? "" } },
   });
   if (authError) throw authError;
   if (!auth.user) throw new Error("Sign up failed");
@@ -174,10 +180,9 @@ export async function updateUserProfile(id: string, patch: Partial<Pick<UserProf
 }
 
 export async function deleteUser(id: string) {
-  const { error } = await supabase
-    .from("user_profiles")
-    .delete()
-    .eq("id", id);
+  const { error } = await supabase.rpc("delete_user_as_admin", {
+    target_user_id: id,
+  });
   if (error) throw error;
 }
 
