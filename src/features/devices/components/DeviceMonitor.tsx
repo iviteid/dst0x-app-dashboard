@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Area,
   CartesianGrid,
   Line,
   LineChart,
@@ -507,6 +508,20 @@ export default function DeviceMonitor({
                 data={rows}
                 margin={{ top: 10, right: 24, bottom: 4, left: 4 }}
               >
+                <defs>
+                  {visible.filter((sensor) => sensor.type !== "wind_direction").map((sensor) => (
+                    <linearGradient key={sensor.id} id={`monitor-fill-${sensor.id}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={colorOf(sensor.id)} stopOpacity={0.27} />
+                      <stop offset="78%" stopColor={colorOf(sensor.id)} stopOpacity={0.035} />
+                      <stop offset="100%" stopColor={colorOf(sensor.id)} stopOpacity={0} />
+                    </linearGradient>
+                  ))}
+                  {visible.filter((sensor) => sensor.type !== "wind_direction").map((sensor) => (
+                    <filter key={sensor.id} id={`monitor-glow-${sensor.id}`} x="-20%" y="-30%" width="140%" height="160%">
+                      <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor={colorOf(sensor.id)} floodOpacity="0.24" />
+                    </filter>
+                  ))}
+                </defs>
                 {grid && (
                   <CartesianGrid
                     stroke="var(--chart-grid)"
@@ -549,6 +564,19 @@ export default function DeviceMonitor({
                   }}
                 />
                 {visible.map((s) => (
+                  s.type !== "wind_direction" && <Area
+                    key={`${s.id}-area`}
+                    yAxisId={s.unit}
+                    dataKey={s.id}
+                    type={curved ? "monotone" : "linear"}
+                    stroke="none"
+                    fill={`url(#monitor-fill-${s.id})`}
+                    fillOpacity={1}
+                    isAnimationActive={false}
+                    connectNulls={false}
+                  />
+                ))}
+                {visible.map((s) => (
                   <Line
                     key={s.id}
                     yAxisId={s.unit}
@@ -556,6 +584,7 @@ export default function DeviceMonitor({
                     name={s.name}
                     stroke={s.type === "wind_direction" ? "transparent" : colorOf(s.id)}
                     strokeWidth={s.type === "wind_direction" ? 0 : 2}
+                    filter={s.type === "wind_direction" ? undefined : `url(#monitor-glow-${s.id})`}
                     type={curved ? "monotone" : "linear"}
                     dot={
                       s.type === "wind_direction"

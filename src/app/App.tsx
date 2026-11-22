@@ -586,6 +586,16 @@ function TrendChart({
           data={data}
           margin={{ top: 8, right: 14, bottom: 4, left: 0 }}
         >
+          <defs>
+            <linearGradient id="trend-area-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.32} />
+              <stop offset="78%" stopColor="var(--primary)" stopOpacity={0.04} />
+              <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
+            </linearGradient>
+            <filter id="trend-line-glow" x="-20%" y="-30%" width="140%" height="160%">
+              <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="var(--primary)" floodOpacity="0.28" />
+            </filter>
+          </defs>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
           <XAxis
             dataKey="time"
@@ -633,11 +643,20 @@ function TrendChart({
               name="Previous period"
             />
           )}
+          <Area
+            type="monotone"
+            dataKey="value"
+            stroke="none"
+            fill="url(#trend-area-fill)"
+            isAnimationActive={false}
+            connectNulls={false}
+          />
           <Line
             type="monotone"
             dataKey="value"
             stroke="var(--primary)"
             strokeWidth={2.5}
+            filter="url(#trend-line-glow)"
             dot={false}
             connectNulls={false}
             name="Selected period"
